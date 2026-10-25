@@ -1,4 +1,4 @@
-# Klaxon
+<img width="1895" height="830" alt="Futuristic Blue KLAXON Wordmark" src="https://github.com/user-attachments/assets/11ad8e30-9f19-4466-ad2b-41b7bb1bf964" />
 Stupid VHS game ENGINE for the Wii U homebrew environment (Action Max only!!)
 
 # KLAXON IS NOT AN EMULATOR!!
