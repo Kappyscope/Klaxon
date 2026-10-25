@@ -1,6 +1,6 @@
 <img width="1895" height="830" alt="Futuristic Blue KLAXON Wordmark" src="https://github.com/user-attachments/assets/11ad8e30-9f19-4466-ad2b-41b7bb1bf964" />
 
-Stupid VHS game emulator(-ish) for the Wii U homebrew environment, built with SDL2 and WUT + devkitPPC (Action Max only for now!!)
+Stupid VHS game emulator(-ish) for the Wii U homebrew environment, built with SDL2 and WUT + devkitPPC (Action Max only for now!! Will eventually hopefully expand into other VHS systems.)
 
 # KLAXON DOESN'T EMULATE ROMS!
 This is NOT a full on ROM emulator. What this is emulating (Action Max) is just a FMV engine that plays Action Max tape video files, aligns it with the timeline of the boundary circles to shoot, adds a counter, and just maps the Wiimote coordinates to your screen to emulate the actual game.
@@ -10,6 +10,9 @@ Read: https://en.wikipedia.org/wiki/Action_Max
 TL;DR: Action Max is a VHS console game where you literally just shoot targets and it registers. Did I mention this runs on glorious VHS? Oh, and you can't really lose at this game. Which makes it funny. Oh, you could also aim it at a light too and it'd register. Fun fact, the Teddy Ruxpin people made this system too. That gave me nightmares, remember that yellow caterpillar thing too? I believe his name was Grubby. He was cool though. Did I mention he had a cable? Kind of reminds me of Human Centipede, but without the human centipede. Bear centipede.
 
 This is just a port of the Singe/Daphne data, but just compiled into an Aroma WUHB for your own pleasure.
+
+# Why WTFPL?
+Because I don't have time to tell you what to do with this project or how to derive from it, do whatever you want, just for the love of God, do NOT include copyrighted assets for your bundles!
 
 # File?
 File? What file? Are you schizophrenic? Where? It'll be here when it's on here.
