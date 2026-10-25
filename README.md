@@ -1,18 +1,24 @@
 <img width="1895" height="830" alt="Futuristic Blue KLAXON Wordmark" src="https://github.com/user-attachments/assets/11ad8e30-9f19-4466-ad2b-41b7bb1bf964" />
-Stupid VHS game ENGINE for the Wii U homebrew environment (Action Max only!!)
+Stupid VHS game emulator(-ish) for the Wii U homebrew environment, built with SDL2 and WUT + devkitPPC (Action Max only for now!!)
 
-# KLAXON IS NOT AN EMULATOR!!
-This is NOT a full on engine, what this is emulating (Action Max) is just a FMV engine that plays Action Max tape video files, aligns it with the timeline of the boundary circles to shoot, adds a counter, and just maps the Wiimote coordinates to your screen to emulate the actual game.
+# KLAXON DOESN'T EMULATE ROMS!
+This is NOT a full on ROM emulator. What this is emulating (Action Max) is just a FMV engine that plays Action Max tape video files, aligns it with the timeline of the boundary circles to shoot, adds a counter, and just maps the Wiimote coordinates to your screen to emulate the actual game.
 
 # What, How, and Why?
 Read: https://en.wikipedia.org/wiki/Action_Max
+TL;DR: Action Max is a VHS console game where you literally just shoot targets and it registers. Did I mention this runs on glorious VHS? Oh, and you can't really lose at this game. Which makes it funny. Oh, you could also aim it at a light too and it'd register. Fun fact, the Teddy Ruxpin people made this system too. That gave me nightmares, remember that yellow caterpillar thing too? I believe his name was Grubby. He was cool though. Did I mention he had a cable? Kind of reminds me of Human Centipede, but without the human centipede. Bear centipede.
 
-This is just a port of the Singe/Daphne data, but just compiled into an Aroma WUHB.
+This is just a port of the Singe/Daphne data, but just compiled into an Aroma WUHB for your own pleasure.
 
 # File?
-File? What file? It'll be here when its on here.
+File? What file? Are you schizophrenic? Where? It'll be here when its on here.
+
+# Do I need files?
+I don't know, do you? Anyways, probably, YES and NO. Worlds of Wonder went defunct in 1989 and these tapes are known as "orphan works", there are no known rights owners of these tapes. I will legally comply with them though if any of them come back and reincarnate as a zombie to take me down. But by God, help me!
+BUT. On the other side, the tape for Blue Thunder was NOT created by WoW but belongs to Columbia Pictures (under Coca-Cola Communications), though all other tapes were made by their team. I'll figure something out.
 
 # Okay, what else?
 If it needs to be updated, it will. If something breaks, let me know or make an issue, if you have problems, go ask me. Have fun!
 
-THIS SOFTWARE IS NOT UNDER WARRANTY, KAPPYSCOPE IS NOT RESPONSIBLE FOR PROPER MISUSE OF THIS SOFTWARE OR INCORRECT OPERATIONAL PROCEEDURES OR INSTALLMENTS
+# DISCLAIMER 1
+Please read the AI usage disclosure. If you're unhappy because I used AI on it, that is fine by me. I believe that people should have the choice to choose if they want AI software or not. But rest assured, I've spent literal midnights and mornings debugging this. 
