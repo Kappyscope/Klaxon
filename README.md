@@ -10,7 +10,7 @@ Read: https://en.wikipedia.org/wiki/Action_Max
 This is just a port of the Singe/Daphne data, but just compiled into an Aroma WUHB.
 
 # File?
-It'll be here when its on here.
+File? What file? It'll be here when its on here.
 
 # Okay, what else?
 If it needs to be updated, it will. If something breaks, let me know or make an issue, if you have problems, go ask me. Have fun!
