@@ -35,10 +35,11 @@ File? What file? Are you schizophrenic? Where? It'll be here when it's on here.
 I don't know, do you? Anyways, probably, YES. And no. I already established that motion data (such as targeting and the actual settings to play the game) are included. Worlds of Wonder went defunct in 1989 and these tapes are known as "orphan works", there are no known rights owners of these tapes. I will legally comply with them though if any of them come back and reincarnate as a zombie to take me down. But by God, help me!
 BUT. On the other side, the tape for Blue Thunder was NOT created by WoW but belongs to Columbia Pictures (under Coca-Cola Communications), though all other tapes were made by their team. I'll figure something out.
 
-Just bring your own files, please. I'd rather eat glass than face a DMCA.
+Just bring your own files, please. I'd rather eat glass than face a DMCA. But since I'm nice, here's the SHA-256s for all videos that are used! Do make sure they match otherwise your audio MIGHT be out of sync.
+
 
 # Where can I find these files?
-Do you have VHS tapes to rip? If you **know** where to get them, then get those. A sync test HAS been included to make sure that the videos match!! Also, not giving out hashes yet. Just figure that out, mkay?
+Do you have VHS tapes to rip? If you **know** where to get them, then get those. See the HASHES.md file to get a list of all video and audio hashes in SHA-256 format.
 
 # Okay, what else?
 If it needs to be updated, it will. If something breaks (which it probably will), let me know or make an issue, if you have problems, go ask me. Have fun!
