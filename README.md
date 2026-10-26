@@ -18,6 +18,9 @@ Actually, this is a great question. Do you know who wakes up on a crisp 7 AM on 
 3. Did I mention it's cool?
 4. I'm just bored man.
 
+# If you're doing it on Wii U, will you port it to other niche systems?
+Yeah I guess. But not for Windows, please see the lovely folks at [https://kangaroopunch.com/view/ShowSoftware?id=5 Kangaroo Punch] for more information on Action Max emulation. I'll try to get it on the Wii standalone eventually, maybe in the future if I can get my hands on a blaster, I could just do a hackjob redneck engineering method thing. I don't know. But Wii is planned.
+
 
 # Why WTFPL?
 Because I don't have time to tell you what to do with this project or how to derive from it, do whatever you want, just for the love of God, do NOT include copyrighted assets for your bundles!
