@@ -19,7 +19,7 @@ Actually, this is a great question. Do you know who wakes up on a crisp 7 AM on 
 4. I'm just bored man.
 
 # If you're doing it on Wii U, will you port it to other niche systems?
-Yeah I guess. But not for Windows, please see the lovely folks at [https://kangaroopunch.com/view/ShowSoftware?id=5 Kangaroo Punch] for more information on Action Max emulation. I'll try to get it on the Wii standalone eventually, maybe in the future if I can get my hands on a blaster, I could just do a hackjob redneck engineering method thing. I don't know. But Wii is planned.
+Yeah, I guess. But not for Windows, please see the lovely folks at [Kangaroo Punch](https://kangaroopunch.com/view/ShowSoftware?id=5) for more information on Action Max emulation. I'll try to get it on the Wii standalone eventually, maybe in the future if I can get my hands on a blaster, I could just do a hackjob redneck engineering method thing. I don't know. But Wii is planned.
 
 
 # Why WTFPL?
