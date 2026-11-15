@@ -1,0 +1,16 @@
+# Build output
+build/
+dist/
+
+# Game media (users fetch tapes from archive.org themselves — see README)
+sd_data/
+
+# Copyrighted extracted Singe assets (users get them from actionmax.zip)
+romfs/assets/
+romfs/manifest/
+
+# Generated
+media/prepared_hashes.sha256
+
+# Local workspace state
+.zwork/

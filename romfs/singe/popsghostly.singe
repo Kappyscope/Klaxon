@@ -1,0 +1,21 @@
+gameID          = "PopsGhostly"
+lengthIntro     = 354
+lengthGame      = 31479
+lengthMenu      = 96
+backgroundFrame = 2090
+highThreshold   = 127
+lowThreshold    = 20
+sensorTop       = 182
+sensorLeft      = 282
+sensorX         = 312
+sensorY         = 205
+
+
+MYDIR = "singe/actionmax"
+
+if rewriteStatus ~= nil and rewriteStatus() then
+
+	MYDIR = "singe/" ..  string.lower(gameID)
+end
+
+dofile(MYDIR .. "/emulator.singe")
