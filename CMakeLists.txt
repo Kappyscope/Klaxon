@@ -99,9 +99,8 @@ add_custom_command(TARGET Klaxon-ActionMax POST_BUILD
 )
 
 # Step 2: RPX + romfs -> WUHB
-# Branding assets (icon / banners / boot splash / boot sound) are wired in
-# here once the final art is produced; --icon currently uses the classic
-# Action Max sprite as a placeholder.
+# Branding: icon (128x128 Wii U Menu tile), TV splash (1280x720) and
+# GamePad splash (854x480) are Kappyscope's own art from branding/.
 add_custom_command(TARGET Klaxon-ActionMax POST_BUILD
     COMMAND ${WUHBTool_EXE}
         ${RPX_FILE}
@@ -110,7 +109,9 @@ add_custom_command(TARGET Klaxon-ActionMax POST_BUILD
         --name="Klaxon Action Max"
         --short-name="ActionMax"
         --author="Kappyscope"
-        --icon=${CMAKE_CURRENT_SOURCE_DIR}/romfs/assets/sprites/sprite_actionmax.png
-    COMMENT "wuhbtool: RPX + romfs -> WUHB"
+        --icon=${CMAKE_CURRENT_SOURCE_DIR}/branding/icon.png
+        --tv-image=${CMAKE_CURRENT_SOURCE_DIR}/branding/tv-splash.png
+        --drc-image=${CMAKE_CURRENT_SOURCE_DIR}/branding/drc-splash.png
+    COMMENT "wuhbtool: RPX + romfs -> WUHB (with Kappyscope branding)"
     VERBATIM
 )

@@ -108,9 +108,11 @@ private:
     Mix_Chunk* sndGetReady_ = nullptr;
     Mix_Chunk* sndActionMax_ = nullptr;
     Mix_Chunk* sndSteadyAim_ = nullptr;
+    Mix_Chunk* sndSplash_    = nullptr;   // user-provided boot jingle (SPLASH)
     int    actionMaxChannel_ = -1;
     float  hitLightTimer_ = 0.0f;
     bool   titleJingleDone_ = false;
+    bool   splashJinglePlayed_ = false;
 
     // last-game scoreboard (session)
     int lastShots_ = 0, lastGood_ = 0, lastBad_ = 0;

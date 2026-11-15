@@ -68,10 +68,12 @@ bool App::loadSounds() {
     sndGetReady_  = load("assets/sounds/sound_getreadyforaction.wav");
     sndActionMax_ = load("assets/sounds/sound_actionmax.wav");
     sndSteadyAim_ = load("assets/sounds/sound_asteadyaimiscritical.wav");
-    KLAXON_LOG("sounds: gun=%d good=%d bad=%d over=%d ready=%d jingle=%d",
+    sndSplash_    = load("assets/sounds/sound_splash.wav");
+    KLAXON_LOG("sounds: gun=%d good=%d bad=%d over=%d ready=%d jingle=%d splash=%d",
                sndGunshot_ != nullptr, sndGoodHit_ != nullptr,
                sndBadHit_ != nullptr, sndGameOver_ != nullptr,
-               sndGetReady_ != nullptr, sndActionMax_ != nullptr);
+               sndGetReady_ != nullptr, sndActionMax_ != nullptr,
+               sndSplash_ != nullptr);
     return true;
 }
 
@@ -132,6 +134,16 @@ bool App::init() {
     state_ = (registry_.readyCount() > 0 && registry_.commonReady)
                  ? AppState::SPLASH
                  : AppState::NO_MEDIA;
+
+    // User-provided boot jingle: plays under the KLAXON splash and into the
+    // title screen; the original Singe title sting stays silent when it did.
+    if (state_ == AppState::SPLASH && sndSplash_) {
+        Mix_PlayChannel(-1, sndSplash_, 0);
+        splashJinglePlayed_ = true;
+        titleJingleDone_ = true;
+        KLAXON_LOG("splash jingle playing");
+    }
+
     KLAXON_LOG("=== app init done (ready games: %d) ===", registry_.readyCount());
     return true;
 }
@@ -151,6 +163,7 @@ void App::shutdown() {
     if (sndGetReady_)  { Mix_FreeChunk(sndGetReady_);  sndGetReady_ = nullptr; }
     if (sndActionMax_) { Mix_FreeChunk(sndActionMax_); sndActionMax_ = nullptr; }
     if (sndSteadyAim_) { Mix_FreeChunk(sndSteadyAim_); sndSteadyAim_ = nullptr; }
+    if (sndSplash_)    { Mix_FreeChunk(sndSplash_);    sndSplash_ = nullptr; }
 
     Mix_ChannelFinished(nullptr);
     g_appForAudio = nullptr;

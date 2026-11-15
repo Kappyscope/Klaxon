@@ -12,5 +12,8 @@ romfs/manifest/
 # Generated
 media/prepared_hashes.sha256
 
+# Boot jingle derived from tape audio (bundled in the .wuhb, not tracked)
+branding/splash-jingle.wav
+
 # Local workspace state
 .zwork/
