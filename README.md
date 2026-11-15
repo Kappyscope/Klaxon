@@ -1,148 +1,97 @@
-# Klaxon — the Action Max for Wii U
+<img width="1895" height="830" alt="Futuristic Blue KLAXON Wordmark" src="https://github.com/user-attachments/assets/11ad8e30-9f19-4466-ad2b-41b7bb1bf964" />
 
-**Klaxon** is a ground-up Wii U homebrew emulator for the 1987 **Worlds of Wonder
-Action Max** — the VHS-console where the "console" was a suction-cup sensor stuck
-to your TV and the games were tapes you shot at. It plays the Singe/DAPHNE
-Action Max tape data natively on a modded Wii U (Aroma), with the **Wii Remote
-as the Action Max pistol** (IR aim + B trigger).
+Stupid VHS game emulator(-ish) for the Wii U homebrew environment, built with SDL2 and WUT + devkitPPC (Action Max only for now!! Will eventually hopefully expand into other VHS systems.)
 
-This is the third generation of Klaxon. The first two (built with Cline and
-Deepseek) never fully worked — see the bottom of this file for what was wrong
-and how this rebuild fixes it, piece by piece.
+This is the third time I've built this thing. Attempts one and two are in a ditch somewhere. This one actually works, and more importantly, it actually *stops* when you ask it to.
 
-```
-TITLE ─▶ GAME SELECT ─▶ GAME TYPE ─▶ INTRO ─▶ PLAYING ─▶ GAME OVER ─▶ TITLE
-                              (Standard / Limited Ammo)
-```
+# KLAXON DOESN'T EMULATE ROMS!
+This is NOT a full on ROM emulator. There is no ROMFS or .wup to run. What this is emulating (Action Max) is just a FMV emulator like application that plays Action Max tape video files, aligns it with the timeline of the boundary circles to shoot, adds a counter, and just maps the Wiimote coordinates to your screen to emulate the actual game.
 
----
+The actual mechanic, for the three people who care: the tape flashes a white circle in the bottom right corner of the screen (that's what the real gun's suction cup stuck to your TV was watching). Every time that circle flips black/white, the console samples the pixel under your crosshair. Same state as the circle = hit. Opposite state = you shot a friend, which deducts points, because apparently the World Peace Coalition frowns on friendly fire. This is a 1:1 port of the original Singe scripts, because I'm not smart enough to invent my own hit detection.
 
-## How the real Action Max worked (and how Klaxon replicates it)
+# What, How, and Why?
+Read: https://en.wikipedia.org/wiki/Action_Max
+TL;DR: Action Max is a VHS console game where you literally just shoot targets and it registers. Did I mention this runs on glorious VHS? Oh, and you can't really lose at this game. Which makes it funny. Oh, you could also aim it at a light too and it'd register. Fun fact, the Teddy Ruxpin people made this system too. That gave me nightmares, remember that yellow caterpillar thing too? I believe his name was Grubby. He was cool though. Did I mention he had a cable? Kind of reminds me of Human Centipede, but without the human centipede. Bear centipede. Thanks, I hate it.
 
-The Action Max never fired bullets. Every tape flashes a small white/black
-**suction-cup patch** on the TV at a fixed spot. The pistol's suction cup
-senses that patch. On every *flip* of the patch (black→white or white→black),
-the console samples the light state under your aim point:
+This is just a port of the Singe/Daphne data, but just compiled into an Aroma WUHB for your own pleasure.
 
-* aim pixel classified the same as the patch on the flip → **good hit**
-* confident opposite classification → **bad hit** (you shot a friend)
-* anything ambiguous → ignored
-
-Klaxon ports this logic 1:1 from ScottD's original Singe scripts
-(`emulator.singe`): the three-state pixel classification
-(`high`/`low`/`unknown` with per-game thresholds), the playfield deadzone, the
-sensor-exclusion box, and the two-flip trigger window.
-
-The "tape" is three video segments played on one continuous 29.97 fps timeline,
-exactly like the Singe/DAPHNE laser-disc model:
-
-| segment | source file | authored length |
-|---|---|---|
-| intro (Action Max sting) | `video_actionmaxintro.*` | 354 frames |
-| gameplay (per game)      | `video_<game>.*`          | `lengthGame` frames |
-| menu loop                | `video_menu.*`            | 96 frames |
-
-The per-game parameters (`lengthIntro/lengthGame/lengthMenu`,
-`backgroundFrame`, `sensorX/sensorY/sensorLeft/sensorTop`, `highThreshold`,
-`lowThreshold`) come from the original Singe `.txt` scripts and ship as
-`game.cfg` inside the `.wuhb`. The intro is cut at frame 354 even though the
-file carries 358 — just like Singe does it.
-
----
-
-## The media (legal-ish) part — KLAXON DOES NOT SHIP TAPES
-
-This repository contains **no copyrighted video or audio**. To play, you
-convert the tape data yourself:
-
-1. Download the Action Max Singe data from
-   [archive.org/details/singev1-actionmax](https://archive.org/details/singev1-actionmax)
-   (the `Singe - IA` tree — those are the original Singe 1 rips whose frame
-   counts match the authored script numbers exactly).
-2. Run the pipeline: `tools/prepare_media.ps1`
-   * verifies every source file against `media/source_hashes.sha256`
-     (SHA-256, also published in [HASHES.md](HASHES.md))
-   * re-encodes each segment to one **muxed MPEG-1 System `.mpg`**
-     (720×480 @ exactly 29.97 fps, MP2 48 kHz audio) — a format the Wii U can
-     software-decode in real time
-   * validates every output (codec, frame rate, frame count) and fails loudly
-     on anything wrong
-3. `tools/build_and_deploy.ps1` builds the `.wuhb` and stages
-   `dist/Klaxon-ActionMax/` — drag that whole folder to `<SD>:/wiiu/apps/`.
-
-At boot, the app **hash-checks the media on your SD card** (size + SHA-256 of
-the first 256 KiB; full-file verification optional via `config.txt`) and hides
-any game whose media is missing or wrong instead of crashing.
+# SETUP (the part you actually came here for)
 
 ## What you need
+- A Wii U with the Aroma environment. If you're here, you probably have this. If you don't, that's a whole other wiki page, my guy.
+- A Wii Remote and a sensor bar. The IR camera is the gun's sights. No sensor bar, no aim, just vibes.
+- A PC with [devkitPro](https://devkitpro.org/) installed (devkitPPC, wut, and the Wii U SDL2 / SDL2_image / SDL2_ttf / SDL2_mixer portlibs), plus ffmpeg and ffprobe somewhere in your PATH.
+- About 6 GB of hard drive space for the converted tapes, and a FAT32 SD card with actual room on it.
+- The ability to run a PowerShell script and wait. That's the whole skill requirement.
 
-* A Wii U with the **Aroma** environment
-* [devkitPro](https://devkitpro.org/) with devkitPPC, wut, and the Wii U SDL2
-  ports (SDL2, SDL2_image, SDL2_ttf, SDL2_mixer) — the same machine can build
-  on Windows; see the notes in `tools/build_and_deploy.ps1`
-* ffmpeg + ffprobe in PATH for the media pipeline
-* a Wii Remote (sensor bar required for IR aiming)
+## Step 1: the legal dance (get the tapes yourself)
+There are no tapes in this repo. Nothing copyrighted, look at me following the law for once.
 
-## Build & run
+Go to https://archive.org/details/singev1-actionmax and download the **Singe - IA** tree. Yes, THAT one specifically. There's a "Remux - IA" tree sitting right next to it that's smaller and tempting, and I need you to not. The Remux files are a re-upload with frame drift, and frame drift in this game means the flashing circle doesn't line up with what the scripts expect, which means your shots eat glass. The original Singe 1 rips match the script frame numbers exactly. I checked. Twice. Don't make me check a third time.
+
+## Step 2: feed the tapes to the machine
+Drop the tree where the scripts expect it (default is `E:\ACTIONMAX RESOURCES`, or pass `-SourceRoot` to the script like a person with a different drive letter):
 
 ```powershell
-# one-time: fetch assets + convert media (from E:\ACTIONMAX RESOURCES)
-tools\extract_assets.ps1 -Force
-tools\prepare_media.ps1 -Force
-
-# build + stage SD payload
-tools\build_and_deploy.ps1
-# copy dist\Klaxon-ActionMax\  ->  <SD>:\wiiu\apps\
+tools\extract_assets.ps1
+tools\prepare_media.ps1
 ```
 
-In-game: **B** fires, IR points, hold **`-`** ~1.2 s to quit. The GamePad is a
-passive mirror ("PadCon") — it is not the gun. HOME is owned by the OS, always.
+What just happened: the first script unpacked the emulator assets (fonts, sprites, sounds) out of `actionmax.zip`, and the second one verified every file's SHA-256 against `media/source_hashes.sha256`, then converted each tape into a single muxed MPEG-1 `.mpg` (720x480, exactly 29.97 fps, MP2 audio) that the Wii U can decode in real time, then validated the output so you don't get green macroblock soup on your TV.
 
-First launch writes `<SD>:/wiiu/apps/Klaxon-ActionMax/klaxon.log` — if anything
-behaves oddly on hardware, that file is the first thing to check (it logs boot
-stages, media verification per game, decode timings, audio underruns).
+If a hash check screams at you, your download is bad. Re-download it. Don't argue with the hash. The hash is always right.
 
----
+## Step 3: build the thing
+```powershell
+tools\build_and_deploy.ps1
+```
 
-## Why the ground-up rebuild (post-mortem of iterations 1 & 2)
+That compiles the whole thing with the devkitPro msys2 toolchain and spits out `dist\Klaxon-ActionMax\` with the `.wuhb` and all the media laid out correctly. Fair warning: devkitPro's Wii U CMake toolchain only cooperates when launched through the msys2 bash, so the script handles that nonsense for you. You're welcome.
 
-* **Feed format.** Both old builds fed MPEG-2 `.m2v` files to `pl_mpeg`, which
-  only decodes MPEG-1 — the picture was green macroblock garbage. The new
-  pipeline re-encodes to MPEG-1 and *proves* each output (codec + fps + frame
-  count gates).
-* **Frame rate.** The old re-encode doubled everything to 59.94 fps and papered
-  over it with a runtime `frameScale` hack. The new pipeline pins 29.97 and the
-  output gate fails on any deviation, so the Singe frame numbering applies
-  1:1.
-* **Tape model.** The old builds treated the gameplay file as if it contained
-  the intro, so "Get Ready!" showed gameplay footage and every boundary was
-  offset. The new tape player models intro→game→menu as separate segments with
-  authored cut points.
-* **A/V sync.** The old builds raced SDL_mixer music against a wall-clock
-  frame counter. The new player uses an **audio-master clock**: the decode
-  thread (own core, CPU2) fills an audio ring that the SDL device drains; the
-  video follows the audio, the way the tape head led the picture.
-* **Hit detection.** The first port collapsed the Singe two-flip sensor
-  comparison into a single-frame "is it white" test — unscorable. This rebuild
-  is a line-by-line port (three-state classification, deadzone, sensor box,
-  two-flip decision), verified against real decoded frames from the tapes.
-* **Wrong game data.** The old build shipped four of five games with Blue
-  Thunder's geometry and thresholds. The configs are now generated from the
-  Singe scripts themselves.
-* **Exit softlocks.** Handling HOME directly and tearing down SDL mid-transition
-  softlocked the console. This rebuild never touches HOME, gates rendering on
-  the foreground state, and exits through SDL's single ProcUI handshake; the
-  in-app quit is hold-`-`.
-* **Paths.** `sd:/` is not a Wii U path (it's `/vol/external01`); assets are
-  also packed into the `.wuhb` so the app boots without an SD at all (it will
-  just tell you the media is missing, per game).
+## Step 4: SD card
+Copy the ENTIRE `dist\Klaxon-ActionMax\` folder to `<SD>:\wiiu\apps\`. The whole folder. It should look like this when you're done:
 
-## Credits & legal
+```
+<SD>:\wiiu\apps\Klaxon-ActionMax\Klaxon-ActionMax.wuhb
+<SD>:\wiiu\apps\Klaxon-ActionMax\data\media\common\*.mpg
+<SD>:\wiiu\apps\Klaxon-ActionMax\data\media\38ambushalley\tape.mpg
+<SD>:\wiiu\apps\Klaxon-ActionMax\data\media\bluethunder\tape.mpg
+<SD>:\wiiu\apps\Klaxon-ActionMax\data\media\hydrosub2021\tape.mpg
+<SD>:\wiiu\apps\Klaxon-ActionMax\data\media\popsghostly\tape.mpg
+<SD>:\wiiu\apps\Klaxon-ActionMax\data\media\sonicfury\tape.mpg
+```
 
-* Action Max hardware & tapes © Worlds of Wonder; game scripts and emulator
-  assets (`actionmax.zip`) by **ScottD** and the Singe/DAPHNE teams — this is a
-  fan port of their data, no tapes are distributed here.
-* [pl_mpeg](https://github.com/phoboslab/pl_mpeg) by Dominic Szablewski (MIT).
-* Redesigned UI fonts: Orbitron, Chakra Petch (OFL), DSEG7 by keshikan (OFL).
-* License: [WTFPL](LICENSE.md) (same as the previous Klaxon), and yes — the
-  [AI usage disclosure](AI_USAGE_DISCLOSURE.md) still applies.
+## Step 5: shoot stuff
+Boot Aroma, hit the Klaxon tile (with the sweet custom icon), and:
+
+| Input | Does |
+|---|---|
+| Point the Wiimote | That's your crosshair |
+| **B** | That's your trigger |
+| **A** | Also a trigger, for people with weird grips |
+| Hold **-** (~1.2 s) | Quit back to the Wii U Menu, cleanly, no softlock |
+| HOME | System's job, not mine |
+| GamePad | It's a PadCon. It mirrors the TV. It is NOT the gun. Stop asking. |
+
+The app checks the media on your SD card at boot (hash + size). If a game's card says MEDIA MISSING, the tape isn't there or it's wrong — it's not a crash, it's the app being polite about your file situation.
+
+# When it inevitably breaks
+There's a `klaxon.log` written right next to the `.wuhb` on your SD card every boot. Boot stages, per-game media checks, decode timings, audio underruns, all of it. If something's haunted, that file is the exorcist. Send it to me with a description of what you saw and I'll have a look.
+
+Aiming feels upside down? Make a `config.txt` next to the `.wuhb` with `aim_flip_y=1` in it and reboot. Feeling brave? `full_media_verify=1` makes the app hash entire multi-hundred-MB files at boot, which it will do patiently while you contemplate your choices.
+
+# Why Wii U out of all things?
+Actually, this is a great question. Do you know who wakes up on a crisp 7 AM on a Saturday and thinks to themselves, "Gee, I could really go for Action Max games on the Wii U!" No one normal, of course. Mainly I'm doing this because:
+1. The homebrew scene is cool
+2. I just want to make something cool for it and see what I can yield
+3. Did I mention it's cool?
+4. I'm just bored man.
+
+# If you're doing it on Wii U, will you port it to other niche systems?
+Yeah, I guess. But not for Windows, please see the lovely folks at [Kangaroo Punch](https://kangaroopunch.com/view/ShowSoftware?id=5) for more information on Action Max emulation. I'll try to get it on the Wii standalone eventually, maybe in the future if I can get my hands on a blaster, I could just do a hackjob redneck engineering method thing. I don't know. But Wii is planned.
+
+# Credits & legal
+- Action Max hardware & tapes © Worlds of Wonder. Game scripts and emulator assets (`actionmax.zip`) by **ScottD** and the Singe/DAPHNE folks — this whole thing is a fan port of their data. No tapes are distributed here, you fetch them yourself like a law-abiding VHS enjoyer.
+- [pl_mpeg](https://github.com/phoboslab/pl_mpeg) by Dominic Szablewski (MIT) does the actual MPEG-1 lifting.
+- UI fonts: Orbitron, Chakra Petch, DSEG7 — all SIL OFL, licenses included in the app assets.
+- License: [WTFPL](LICENSE.md), obviously. And the [AI usage disclosure](AI_USAGE_DISCLOSURE.md) is a thing that exists, for transparency.
