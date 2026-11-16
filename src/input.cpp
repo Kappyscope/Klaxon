@@ -107,8 +107,8 @@ void InputManager::update(float dt) {
                     if (dx < -kMaxStep) dx = -kMaxStep;
                     if (dy >  kMaxStep) dy =  kMaxStep;
                     if (dy < -kMaxStep) dy = -kMaxStep;
-                    ch.posX += dx * 0.6f;
-                    ch.posY += dy * 0.6f;
+                    ch.posX += dx * 0.75f;
+                    ch.posY += dy * 0.75f;
                 } else {
                     ch.posX = nx;
                     ch.posY = ny;
@@ -151,7 +151,7 @@ void InputManager::update(float dt) {
         const Chan& ch = chans_[active];
         st_.connected = true;
         st_.channel = active;
-        st_.aiming = ch.posValid;
+        st_.aiming = ch.posValid || (ch.lostFrames < IR_HOLD_FRAMES);
         st_.aimX = ch.posX;
         st_.aimY = ch.posY;
         st_.triggerHeld = ch.heldB || ch.heldA;
