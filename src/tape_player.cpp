@@ -94,11 +94,17 @@ void TapePlayer::shutdown() {
     if (threadUp_) {
         OSLockMutex(&lock_);
         quitThread_ = true;
-        cmd_.action = Cmd::STOP;
         OSUnlockMutex(&lock_);
 
-        int result = 0;
-        OSJoinThread(&thread_, &result);
+        // Never OSJoinThread here: on hardware the join has hung every single
+        // time, leaving the console on the Wii U Menu transition screen.  Wait
+        // for the thread to say it is done, then walk away.
+        for (int i = 0; i < 200 && !threadDone_.load(std::memory_order_acquire); i++) {
+            OSSleepTicks(OSMillisecondsToTicks(2));
+        }
+        KLAXON_LOG("shutdown: decode thread %s",
+                   threadDone_.load(std::memory_order_acquire)
+                       ? "stopped" : "still busy - abandoning");
         threadUp_ = false;
     }
     if (stack_) {
@@ -267,6 +273,7 @@ int TapePlayer::threadEntry(int argc, const char** argv) {
     (void)argc;
     TapePlayer* self = (TapePlayer*)argv;   // wut passes the void* arg as argv
     self->decodeLoop();
+    self->threadDone_.store(true, std::memory_order_release);
     return 0;
 }
 

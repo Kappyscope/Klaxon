@@ -44,6 +44,7 @@ void App::loadSettings() {
         else if (key == "title_level") titleLevel_ = ParseIntDefault(val, 9);
         else if (key == "autoplay") autoplay_ = (val == "1" || val == "true");
         else if (key == "dumpframe") dumpFrame_ = ParseIntDefault(val, -1);
+        else if (key == "video_static") videoStatic_ = !(val == "0" || val == "false");
     }
     fclose(f);
 }
@@ -355,13 +356,18 @@ void App::finishGame(bool outOfAmmo) {
 void App::ensureVideoTexture(int w, int h) {
     if (texVideo_ && texVideoW_ == w && texVideoH_ == h) return;
     if (texVideo_) SDL_DestroyTexture(texVideo_);
+    const SDL_TextureAccess access = videoStatic_ ? SDL_TEXTUREACCESS_STATIC
+                                                  : SDL_TEXTUREACCESS_STREAMING;
     texVideo_ = SDL_CreateTexture(renderer_, SDL_PIXELFORMAT_RGBA32,
-                                  SDL_TEXTUREACCESS_STREAMING, w, h);
+                                  access, w, h);
     if (texVideo_) {
         SDL_SetTextureBlendMode(texVideo_, SDL_BLENDMODE_NONE);
         texVideoW_ = w;
         texVideoH_ = h;
-        KLAXON_LOG("video texture %dx%d", w, h);
+        KLAXON_LOG("video texture %dx%d (%s)", w, h,
+                   videoStatic_ ? "static" : "streaming");
+    } else {
+        KLAXON_LOG("video texture %dx%d FAILED: %s", w, h, SDL_GetError());
     }
 }
 
@@ -390,6 +396,20 @@ void App::consumeTapeFrames() {
         if (texVideo_ && tape_.frame().rgba) {
             int rc = SDL_UpdateTexture(texVideo_, nullptr, tape_.frame().rgba,
                                        tape_.frame().width * 4);
+            if (rc != 0) {
+                // Streaming upload refused: retry once with a static texture.
+                KLAXON_LOG("video: SDL_UpdateTexture failed (%s) - retrying static",
+                           SDL_GetError());
+                SDL_DestroyTexture(texVideo_);
+                texVideo_ = nullptr;
+                texVideoW_ = texVideoH_ = 0;
+                videoStatic_ = true;
+                ensureVideoTexture(tape_.frame().width, tape_.frame().height);
+                if (texVideo_) {
+                    rc = SDL_UpdateTexture(texVideo_, nullptr, tape_.frame().rgba,
+                                           tape_.frame().width * 4);
+                }
+            }
             // Numeric proof of the video path (no screenshots needed): the
             // centre and quarter points of the decoded frame.
             if (videoDbg_ < 6 || (videoDbg_ % 30) == 0) {
@@ -554,6 +574,17 @@ void App::update(float dt) {
             autoTimer_ = 0.0f;
             autoTrigger_ = true;
         }
+    }
+
+    // Leave-the-tape gesture (hold "-" briefly): back to the title from a
+    // playing tape, so the intro is never a trap.
+    if (input_.backRequested() &&
+        (state_ == AppState::INTRO || state_ == AppState::PLAYING ||
+         state_ == AppState::GAME_OVER)) {
+        KLAXON_LOG("back gesture: leaving tape");
+        input_.clearBack();
+        enterTitle();
+        return;
     }
 
     // Title jingle chain: "Action Max" -> "A Steady Aim is Critical".

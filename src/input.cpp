@@ -158,11 +158,15 @@ void InputManager::update(float dt) {
         // Trigger edges were already aggregated per channel above.
     }
 
-    // ---- quit gesture ----
+    // ---- quit / back gestures ----
+    //   tap "-" (under 0.5 s)  -> back to the title from a tape
+    //   hold "-" (1.2 s)       -> quit the app
+    backRequested_ = false;
     if (quitHeld) {
         quitHold_ += dt;
         if (quitHold_ >= QUIT_HOLD_SECONDS) quitRequested_ = true;
     } else {
+        if (quitHold_ > 0.0f && quitHold_ < 0.5f) backRequested_ = true;
         quitHold_ = 0.0f;
     }
 }

@@ -28,6 +28,10 @@ public:
     const State& state() const { return st_; }
     bool quitRequested() const { return quitRequested_; }
 
+    // "Leave the tape" gesture: a tap of "-".  Set for one frame on release.
+    bool backRequested() const { return backRequested_; }
+    void clearBack() { backRequested_ = false; }
+
 private:
     struct Chan {
         bool  connected = false;
@@ -42,5 +46,6 @@ private:
     Chan chans_[4];
     bool  quitRequested_ = false;
     float quitHold_ = 0.0f;
+    bool  backRequested_ = false;
     bool  initialised_ = false;
 };

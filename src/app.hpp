@@ -143,6 +143,7 @@ private:
     bool inForeground_ = true;
     float inputLock_  = 0.0f;   // ignore the trigger just after a state change
     int   videoDbg_   = 0;      // decoded-frame log counter
+    bool  videoStatic_ = true;  // wut: streaming textures upload "ok" but never show
     int   dumpFrame_  = -1;     // config: dumpframe=N writes that decoded frame
     bool  dumped_     = false;
     bool shutDown_    = false;
