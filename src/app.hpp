@@ -142,6 +142,9 @@ private:
     bool running_     = false;
     bool inForeground_ = true;
     float inputLock_  = 0.0f;   // ignore the trigger just after a state change
+    int   videoDbg_   = 0;      // decoded-frame log counter
+    int   dumpFrame_  = -1;     // config: dumpframe=N writes that decoded frame
+    bool  dumped_     = false;
     bool shutDown_    = false;
     int  frameCount_  = 0;
 };

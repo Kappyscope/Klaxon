@@ -59,6 +59,11 @@ using System;
 using System.Runtime.InteropServices;
 public class W {
     [DllImport("user32.dll")] public static extern bool GetWindowRect(IntPtr h, out RECT r);
+    [DllImport("user32.dll")] public static extern bool SetWindowPos(IntPtr h, IntPtr after, int x, int y, int cx, int cy, uint flags);
+    [DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr h, int cmd);
+    [DllImport("user32.dll")] public static extern bool BringWindowToTop(IntPtr h);
+    [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr h);
+    [DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow();
     [StructLayout(LayoutKind.Sequential)] public struct RECT { public int L, T, R, B; }
 }
 "@
@@ -66,19 +71,41 @@ public class W {
 $target = Get-Process Cemu -ErrorAction SilentlyContinue |
           Where-Object { $_.MainWindowHandle -ne 0 } | Select-Object -First 1
 if ($target) {
-    $r = New-Object W+RECT
-    [void][W]::GetWindowRect($target.MainWindowHandle, [ref]$r)
-    $w = $r.R - $r.L
-    $h = $r.B - $r.T
-    if ($w -gt 0 -and $h -gt 0) {
-        $bmp = New-Object System.Drawing.Bitmap $w, $h
-        $g   = [System.Drawing.Graphics]::FromImage($bmp)
-        $g.CopyFromScreen($r.L, $r.T, 0, 0, $bmp.Size)
-        $bmp.Save($Out, [System.Drawing.Imaging.ImageFormat]::Png)
-        $g.Dispose()
-        $bmp.Dispose()
-        Write-Host ("screenshot: {0} ({1}x{2})" -f $Out, $w, $h)
+    # Pin the window TOPMOST before capturing.  Screen-rect capture of a window
+    # that something else overlaps grabs the overlapping pixels instead - that
+    # is how a browser window once ended up in a screenshot.
+    $h = $target.MainWindowHandle
+    [void][W]::ShowWindow($h, 9)              # SW_RESTORE
+    [void][W]::SetWindowPos($h, [IntPtr](-1), 0, 0, 0, 0, 0x0001 -bor 0x0002 -bor 0x0040)  # HWND_TOPMOST, NOSIZE|NOMOVE|SHOWWINDOW
+    [void][W]::BringWindowToTop($h)
+    [void][W]::SetForegroundWindow($h)
+    Start-Sleep -Milliseconds 900
+
+    # Refuse to capture unless Cemu is genuinely the focused window.  A screen
+    # rectangle grab of an occluded/closed window photographs whatever is behind
+    # it - that is how a desktop once ended up in a file.
+    $focused = ([W]::GetForegroundWindow() -eq $h)
+    if (-not $focused) {
+        Write-Host "Cemu is not the focused window - capture skipped (never photograph other windows)"
+        [void][W]::SetWindowPos($h, [IntPtr](-2), 0, 0, 0, 0, 0x0001 -bor 0x0002)
     }
+
+    if ($focused) {
+        $r = New-Object W+RECT
+        [void][W]::GetWindowRect($h, [ref]$r)
+        $w = $r.R - $r.L
+        $hgt = $r.B - $r.T
+        if ($w -gt 0 -and $hgt -gt 0) {
+            $bmp = New-Object System.Drawing.Bitmap $w, $hgt
+            $g   = [System.Drawing.Graphics]::FromImage($bmp)
+            $g.CopyFromScreen($r.L, $r.T, 0, 0, $bmp.Size)
+            $bmp.Save($Out, [System.Drawing.Imaging.ImageFormat]::Png)
+            $g.Dispose()
+            $bmp.Dispose()
+            Write-Host ("screenshot: {0} ({1}x{2})" -f $Out, $w, $hgt)
+        }
+        [void][W]::SetWindowPos($h, [IntPtr](-2), 0, 0, 0, 0, 0x0001 -bor 0x0002)
+    }  # back to NOTOPMOST
 } else {
     # Never fall back to the desktop: an earlier version captured the whole
     # screen here and a browser window ended up in a commit.  Window only.

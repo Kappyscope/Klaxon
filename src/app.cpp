@@ -43,6 +43,7 @@ void App::loadSettings() {
         else if (key == "audio") audioEnabled_ = !(val == "0" || val == "false");
         else if (key == "title_level") titleLevel_ = ParseIntDefault(val, 9);
         else if (key == "autoplay") autoplay_ = (val == "1" || val == "true");
+        else if (key == "dumpframe") dumpFrame_ = ParseIntDefault(val, -1);
     }
     fclose(f);
 }
@@ -136,6 +137,20 @@ void App::warmTitleText() {
                      hud_.fontBody(16), dim, &w, &h);
     hud_.textTexture("toast", "Hold - (Wiimote) to quit", hud_.fontBody(20),
                      white, &w, &h);
+
+    // HUD widgets: score box, ten digits and the ammo label are built here so
+    // the run loop never creates a texture (unreliable once audio is live).
+    const SDL_Color ledRed = { 255, 42, 42, 255 };
+    const SDL_Color hudGray = { 150, 155, 165, 255 };
+    hud_.textTexture("scorelabel", "SCORE", hud_.fontBody(16), amber, &w, &h);
+    for (int d = 0; d < 10; d++) {
+        char key[12];
+        snprintf(key, sizeof(key), "digit%d", d);
+        char txt[2] = { (char)('0' + d), 0 };
+        hud_.textTexture(key, txt, hud_.fontDigits(), ledRed, &w, &h);
+    }
+    hud_.textTexture("digitsign", "-", hud_.fontDigits(), ledRed, &w, &h);
+    hud_.textTexture("ammolabel", "AMMO", hud_.fontBody(16), hudGray, &w, &h);
     KLAXON_LOG("hud: title text warmed (no texture creation after audio starts)");
 }
 
@@ -373,8 +388,49 @@ void App::consumeTapeFrames() {
     while (tape_.pollFrame()) {
         ensureVideoTexture(tape_.frame().width, tape_.frame().height);
         if (texVideo_ && tape_.frame().rgba) {
-            SDL_UpdateTexture(texVideo_, nullptr, tape_.frame().rgba,
-                              tape_.frame().width * 4);
+            int rc = SDL_UpdateTexture(texVideo_, nullptr, tape_.frame().rgba,
+                                       tape_.frame().width * 4);
+            // Numeric proof of the video path (no screenshots needed): the
+            // centre and quarter points of the decoded frame.
+            if (videoDbg_ < 6 || (videoDbg_ % 30) == 0) {
+                const int vw = tape_.frame().width;
+                const int vh = tape_.frame().height;
+                const uint8_t* p  = tape_.frame().rgba;
+                const uint8_t* c1 = p + ((size_t)(vh / 2) * vw + (vw / 2)) * 4;
+                // Mean + peak luminance over the frame: proves whether a dark
+                // screen is dark CONTENT or a dead video path.
+                uint64_t sum = 0;
+                int peak = 0;
+                for (size_t i = 0; i < (size_t)vw * vh; i += 7) {
+                    int lum = (p[i * 4] * 30 + p[i * 4 + 1] * 59 + p[i * 4 + 2] * 11) / 100;
+                    sum += (uint64_t)lum;
+                    if (lum > peak) peak = lum;
+                }
+                int mean = (int)(sum / (((size_t)vw * vh) / 7 + 1));
+                KLAXON_LOG("video[%d] %dx%d upd=%d mid=%d,%d,%d mean=%d peak=%d",
+                           videoDbg_, vw, vh, rc, c1[0], c1[1], c1[2], mean, peak);
+            }
+            // Optional single-frame dump of the DECODED buffer (never the
+            // screen): config dumpframe=N.
+            if (dumpFrame_ >= 0 && !dumped_ && videoDbg_ == dumpFrame_) {
+                const int vw = tape_.frame().width, vh = tape_.frame().height;
+                std::string path = ResolveAssetPath("frame.ppm");
+                if (path.empty()) path = "/vol/external01/wiiu/apps/Klaxon-ActionMax/frame.ppm";
+                FILE* f = fopen(path.c_str(), "wb");
+                if (f) {
+                    fprintf(f, "P6\n%d %d\n255\n", vw, vh);
+                    const uint8_t* p = tape_.frame().rgba;
+                    for (int i = 0; i < vw * vh; i++) {
+                        fputc(p[i * 4], f); fputc(p[i * 4 + 1], f); fputc(p[i * 4 + 2], f);
+                    }
+                    fclose(f);
+                    KLAXON_LOG("video: frame %d dumped to %s", videoDbg_, path.c_str());
+                }
+                dumped_ = true;
+            }
+            videoDbg_++;
+        } else if (videoDbg_ < 6) {
+            KLAXON_LOG("video[%d] no texture or no frame buffer", videoDbg_++);
         }
 
         if (state_ == AppState::PLAYING && activeGame_ >= 0) {

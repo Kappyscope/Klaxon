@@ -20,6 +20,7 @@ public:
     // Fonts
     TTF_Font* fontDisplay(int px);   // Orbitron
     TTF_Font* fontBody(int px);      // Chakra Petch
+    TTF_Font* fontDigits();          // DSEG7 seven-segment
 
     // Cached-text helper: renders text once, reuses the texture.
     // Returns a texture the HUD owns until the same cache id is re-set.
@@ -74,6 +75,6 @@ private:
         SDL_Texture* tex = nullptr;
         int w = 0, h = 0;
     };
-    CachedText cache_[16];
+    CachedText cache_[32];
     int cacheCount_ = 0;
 };

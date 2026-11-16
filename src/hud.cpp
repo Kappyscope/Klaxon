@@ -110,6 +110,8 @@ TTF_Font* Hud::fontBody(int px) {
     return px >= 20 ? fBody20_ : fBody16_;
 }
 
+TTF_Font* Hud::fontDigits() { return fDseg40_; }
+
 SDL_Texture* Hud::textTexture(const std::string& cacheId, const char* text,
                               TTF_Font* font, SDL_Color color,
                               int* outW, int* outH) {
@@ -171,17 +173,35 @@ void Hud::drawScore(int x, int y, int score) {
         SDL_RenderCopy(renderer_, label, nullptr, &lr);
     }
 
-    // Digits (DSEG7).  LED-off ghost digits behind the lit ones look right.
-    char buf[16];
-    if (score < 0) snprintf(buf, sizeof(buf), "-%02d", (-score) % 100);
-    else           snprintf(buf, sizeof(buf), "%02d", score % 100);
+    // Digits (DSEG7).  Composed from ten pre-built digit textures so no
+    // texture is ever created mid-run (that has been unreliable on hardware).
+    int scoreVal = score < 0 ? -score : score;
+    char buf[8];
+    snprintf(buf, sizeof(buf), "%s%02d", score < 0 ? "-" : "", scoreVal % 100);
 
-    int dw = 0, dh = 0;
-    SDL_Texture* digits = textTexture("scoredigits", buf, fDseg40_,
-                                      palette::ledRed, &dw, &dh);
-    if (digits) {
-        SDL_Rect dr = { x - dw / 2, box.y + 30, dw, dh };
-        SDL_RenderCopy(renderer_, digits, nullptr, &dr);
+    int widths[4] = { 0, 0, 0, 0 };
+    int heights[4] = { 0, 0, 0, 0 };
+    SDL_Texture* glyphs[4] = { nullptr, nullptr, nullptr, nullptr };
+    int n = 0;
+    for (const char* c = buf; *c && n < 4; c++, n++) {
+        int gw = 0, gh = 0;
+        std::string id = (c[0] == '-') ? std::string("digitsign")
+                                       : (std::string("digit") + c[0]);
+        char txt[2] = { *c, 0 };
+        glyphs[n] = textTexture(id, txt, fDseg40_, palette::ledRed, &gw, &gh);
+        widths[n] = gw;
+        heights[n] = gh;
+    }
+
+    int totalW = 0;
+    for (int i = 0; i < n; i++) totalW += widths[i];
+    int gx = x - totalW / 2;
+    for (int i = 0; i < n; i++) {
+        if (glyphs[i]) {
+            SDL_Rect dr = { gx, box.y + 30, widths[i], heights[i] };
+            SDL_RenderCopy(renderer_, glyphs[i], nullptr, &dr);
+        }
+        gx += widths[i];
     }
 }
 
