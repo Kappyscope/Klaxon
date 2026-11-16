@@ -45,6 +45,7 @@ void App::loadSettings() {
         else if (key == "autoplay") autoplay_ = (val == "1" || val == "true");
         else if (key == "dumpframe") dumpFrame_ = ParseIntDefault(val, -1);
         else if (key == "video_static") videoStatic_ = !(val == "0" || val == "false");
+        else if (key == "video_mode") videoMode_ = ParseIntDefault(val, 0);
     }
     fclose(f);
 }
@@ -394,21 +395,47 @@ void App::consumeTapeFrames() {
     while (tape_.pollFrame()) {
         ensureVideoTexture(tape_.frame().width, tape_.frame().height);
         if (texVideo_ && tape_.frame().rgba) {
-            int rc = SDL_UpdateTexture(texVideo_, nullptr, tape_.frame().rgba,
-                                       tape_.frame().width * 4);
-            if (rc != 0) {
-                // Streaming upload refused: retry once with a static texture.
-                KLAXON_LOG("video: SDL_UpdateTexture failed (%s) - retrying static",
-                           SDL_GetError());
-                SDL_DestroyTexture(texVideo_);
-                texVideo_ = nullptr;
-                texVideoW_ = texVideoH_ = 0;
-                videoStatic_ = true;
-                ensureVideoTexture(tape_.frame().width, tape_.frame().height);
-                if (texVideo_) {
-                    rc = SDL_UpdateTexture(texVideo_, nullptr, tape_.frame().rgba,
-                                           tape_.frame().width * 4);
+            const int vw = tape_.frame().width;
+            const int vh = tape_.frame().height;
+            const uint8_t* src = tape_.frame().rgba;
+            int rc = -1;
+
+            if (videoMode_ == 1) {
+                // Rebuild the texture from a surface every frame.  Textures that
+                // come from SDL_ttf/PNG surfaces do display on wut, so this is
+                // the fallback when direct uploads are ignored.
+                SDL_Surface* s = SDL_CreateRGBSurfaceWithFormatFrom(
+                    (void*)src, vw, vh, 32, vw * 4, SDL_PIXELFORMAT_RGBA32);
+                if (s) {
+                    if (texVideo_) SDL_DestroyTexture(texVideo_);
+                    texVideo_ = SDL_CreateTextureFromSurface(renderer_, s);
+                    SDL_FreeSurface(s);
+                    if (texVideo_) {
+                        SDL_SetTextureBlendMode(texVideo_, SDL_BLENDMODE_NONE);
+                        texVideoW_ = vw;
+                        texVideoH_ = vh;
+                        rc = 0;
+                    }
                 }
+            } else if (videoMode_ == 2) {
+                void* px = nullptr;
+                int pitch = 0;
+                if (SDL_LockTexture(texVideo_, nullptr, &px, &pitch) == 0) {
+                    for (int y = 0; y < vh; y++) {
+                        SDL_memcpy((uint8_t*)px + (size_t)y * pitch,
+                                   src + (size_t)y * vw * 4, (size_t)vw * 4);
+                    }
+                    SDL_UnlockTexture(texVideo_);
+                    rc = 0;
+                }
+            } else {
+                rc = SDL_UpdateTexture(texVideo_, nullptr, src, vw * 4);
+            }
+
+            if (rc != 0 && videoMode_ == 0) {
+                KLAXON_LOG("video: SDL_UpdateTexture failed (%s) - trying surface mode",
+                           SDL_GetError());
+                videoMode_ = 1;
             }
             // Numeric proof of the video path (no screenshots needed): the
             // centre and quarter points of the decoded frame.
