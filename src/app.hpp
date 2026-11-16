@@ -73,6 +73,7 @@ private:
     void videoRect(SDL_Rect* out) const;
     void aimToOverlay(int* ox, int* oy) const;
     void playChunk(int id);
+    bool triggerNow() const;   // trigger, gated by the post-transition lock
     void stageSounds();
     void decodeSounds();
     void preloadTextures();
@@ -133,10 +134,14 @@ private:
     bool videoDar43_  = true;
     bool fullVerify_  = false;
     bool audioEnabled_ = true;   // config: audio=0 skips the device (bisect)
+    bool autoplay_     = false;  // config: autoplay=1 drives the menus itself (Cemu testing)
+    bool autoTrigger_  = false;
+    float autoTimer_   = 0.0f;
     int  titleLevel_   = 9;      // config: title_level=N draws only the first N parts
 
     bool running_     = false;
     bool inForeground_ = true;
+    float inputLock_  = 0.0f;   // ignore the trigger just after a state change
     bool shutDown_    = false;
     int  frameCount_  = 0;
 };

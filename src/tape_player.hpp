@@ -162,6 +162,7 @@ private:
 
     Cmd      cmd_;                // pending command
     bool     paused_ = false;
+    bool     quitThread_ = false; // shutdown only: decode thread returns
     bool     audioOpen_ = false;
     TapePhase phase_ = TapePhase::IDLE;
     bool     phaseEndedFlag_ = false;

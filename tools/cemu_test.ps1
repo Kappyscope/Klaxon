@@ -80,15 +80,9 @@ if ($target) {
         Write-Host ("screenshot: {0} ({1}x{2})" -f $Out, $w, $h)
     }
 } else {
-    # Fallback: capture the whole primary screen (Cemu is foreground).
-    $bounds = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds
-    $bmp = New-Object System.Drawing.Bitmap $bounds.Width, $bounds.Height
-    $g   = [System.Drawing.Graphics]::FromImage($bmp)
-    $g.CopyFromScreen($bounds.X, $bounds.Y, 0, 0, $bmp.Size)
-    $bmp.Save($Out, [System.Drawing.Imaging.ImageFormat]::Png)
-    $g.Dispose()
-    $bmp.Dispose()
-    Write-Host "no Cemu window handle - captured full screen: $Out"
+    # Never fall back to the desktop: an earlier version captured the whole
+    # screen here and a browser window ended up in a commit.  Window only.
+    Write-Host "no Cemu window found - skipping capture (no desktop fallback)"
 }
 
 # --- log tail ---------------------------------------------------------------

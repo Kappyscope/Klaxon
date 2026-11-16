@@ -42,6 +42,7 @@ void App::loadSettings() {
         else if (key == "full_media_verify") fullVerify_ = (val == "1" || val == "true");
         else if (key == "audio") audioEnabled_ = !(val == "0" || val == "false");
         else if (key == "title_level") titleLevel_ = ParseIntDefault(val, 9);
+        else if (key == "autoplay") autoplay_ = (val == "1" || val == "true");
     }
     fclose(f);
 }
@@ -275,6 +276,7 @@ void App::enterTitle() {
     tape_.stop();
     state_ = AppState::TITLE;
     stateTime_ = 0.0f;
+    inputLock_ = 0.30f;
     activeGame_ = -1;
     KLAXON_LOG("-> TITLE");
 
@@ -308,6 +310,7 @@ void App::startSelectedGameIntro(bool limited) {
     if (sndGetReady_ >= 0) tape_.playSfx(sndGetReady_);
     state_ = AppState::INTRO;
     stateTime_ = 0.0f;
+    inputLock_ = 0.40f;
     KLAXON_LOG("intro: %s (limited=%d)", cfg.title.c_str(), (int)limited);
 }
 
@@ -330,6 +333,7 @@ void App::finishGame(bool outOfAmmo) {
     }
     state_ = AppState::GAME_OVER;
     stateTime_ = 0.0f;
+    inputLock_ = 0.40f;
     detector_.reset();
 }
 
@@ -482,6 +486,19 @@ void App::run() {
 
 void App::update(float dt) {
     stateTime_ += dt;
+    if (inputLock_ > 0.0f) {
+        inputLock_ -= dt;
+        if (inputLock_ < 0.0f) inputLock_ = 0.0f;
+    }
+
+    // Cemu testing aid: step through the menus without a Wii Remote.
+    if (autoplay_) {
+        autoTimer_ += dt;
+        if (autoTimer_ >= 2.0f) {
+            autoTimer_ = 0.0f;
+            autoTrigger_ = true;
+        }
+    }
 
     // Title jingle chain: "Action Max" -> "A Steady Aim is Critical".
     // (No SDL_mixer callback: the mixer sets a flag the last time it plays
@@ -506,6 +523,8 @@ void App::update(float dt) {
         case AppState::GAME_OVER:   updateGameOver(dt); break;
         case AppState::NO_MEDIA:    break;
     }
+
+    autoTrigger_ = false;
 }
 
 void App::updateSplash(float) {
@@ -515,9 +534,10 @@ void App::updateSplash(float) {
 }
 
 void App::updateTitle(float) {
-    if (input_.state().triggerPressed) {
+    if (triggerNow()) {
         state_ = AppState::GAME_SELECT;
         stateTime_ = 0.0f;
+        inputLock_ = 0.30f;   // one press must not blow through the menus
         KLAXON_LOG("-> GAME_SELECT");
     }
 }
@@ -534,7 +554,7 @@ void App::updateGameSelect(float) {
         selectedGame_ = idx;
     }
 
-    if (input_.state().triggerPressed) {
+    if (triggerNow()) {
         const GameConfig& cfg = registry_.games()[selectedGame_];
         if (!cfg.ready) {
             KLAXON_LOG("selected game not ready: %s (%s)",
@@ -544,6 +564,7 @@ void App::updateGameSelect(float) {
         KLAXON_LOG("-> GAME_TYPE (%s)", cfg.title.c_str());
         state_ = AppState::GAME_TYPE;
         stateTime_ = 0.0f;
+        inputLock_ = 0.30f;
         if (!registry_.menuMediaPath.empty()) {
             tape_.startMenuLoop(registry_.menuMediaPath);
         }
@@ -552,7 +573,7 @@ void App::updateGameSelect(float) {
 
 void App::updateGameType(float) {
     const InputManager::State& in = input_.state();
-    if (in.triggerPressed) {
+    if (triggerNow()) {
         bool limited = !in.aiming || in.aimX >= 0.5f;
         startSelectedGameIntro(limited);
     }
@@ -577,7 +598,7 @@ void App::updatePlaying(float dt) {
     (void)dt;
     const InputManager::State& in = input_.state();
 
-    if (in.triggerPressed) {
+    if (triggerNow()) {
         playChunk(sndGunshot_);
         detector_.pullTrigger();
         if (limitedMode_) {
@@ -595,9 +616,14 @@ void App::updatePlaying(float dt) {
 }
 
 void App::updateGameOver(float) {
-    if (stateTime_ > GAME_OVER_SECONDS || input_.state().triggerPressed) {
+    if (stateTime_ > GAME_OVER_SECONDS || triggerNow()) {
         enterTitle();
     }
+}
+
+bool App::triggerNow() const {
+    return inputLock_ <= 0.0f &&
+           (input_.state().triggerPressed || autoTrigger_);
 }
 
 void App::playChunk(int id) {
@@ -684,11 +710,21 @@ void App::renderTitle() {
     SDL_SetRenderDrawColor(renderer_, 8, 10, 16, 255);
     SDL_RenderClear(renderer_);
 
-    // Background still of the currently highlighted game.
-    if (titleLevel_ >= 1 && selectedGame_ >= 0 &&
-        selectedGame_ < (int)registry_.games().size()) {
-        drawBackgroundStills(registry_.games()[selectedGame_],
-                             SCREEN_W / 2, SCREEN_H / 2, SCREEN_W, SCREEN_H);
+    // Backdrop: deliberately no artwork.  A dark field and one orange rule
+    // reads as an arcade attract screen and keeps the wordmark in focus.
+    if (titleLevel_ >= 1) {
+        SDL_SetRenderDrawBlendMode(renderer_, SDL_BLENDMODE_NONE);
+        const int shades[4] = { 10, 12, 14, 16 };
+        for (int i = 0; i < 4; i++) {
+            SDL_Rect band = { 0, i * 180, SCREEN_W, 180 };
+            SDL_SetRenderDrawColor(renderer_, (Uint8)shades[i],
+                                   (Uint8)(shades[i] + 2),
+                                   (Uint8)(shades[i] + 7), 255);
+            SDL_RenderFillRect(renderer_, &band);
+        }
+        SDL_SetRenderDrawColor(renderer_, 255, 107, 26, 110);
+        SDL_Rect rule = { SCREEN_W / 2 - 300, 252, 600, 2 };
+        SDL_RenderFillRect(renderer_, &rule);
     }
 
     // Wordmark.

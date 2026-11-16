@@ -78,19 +78,41 @@ void InputManager::update(float dt) {
             float nx = (k.pos.x + 1.0f) * 0.5f;
             float ny = (k.pos.y + 1.0f) * 0.5f;
 
-            bool plausible =
-                k.posValid != 0 || (k.pos.x != 0.0f || k.pos.y != 0.0f);
-            bool valid =
-                plausible && std::isfinite(nx) && std::isfinite(ny) &&
-                nx >= -0.1f && nx <= 1.1f && ny >= -0.1f && ny <= 1.1f;
+            bool valid = std::isfinite(nx) && std::isfinite(ny) &&
+                         nx >= -0.1f && nx <= 1.1f &&
+                         ny >= -0.1f && ny <= 1.1f;
+            if (valid && k.posValid == 0 && ch.posValid) {
+                // A packet with no valid IR that still carries coordinates is
+                // usually stale garbage: reject it when it jumps.
+                if (std::fabs(nx - ch.posX) > 0.2f ||
+                    std::fabs(ny - ch.posY) > 0.2f) {
+                    valid = false;
+                }
+            }
 
             if (valid) {
                 if (nx < 0.0f) nx = 0.0f;
                 if (nx > 1.0f) nx = 1.0f;
                 if (ny < 0.0f) ny = 0.0f;
                 if (ny > 1.0f) ny = 1.0f;
-                ch.posX = nx;
-                ch.posY = ny;
+
+                if (ch.posValid) {
+                    // Clamp per-frame movement, then low-pass.  Raw IR samples
+                    // spike hard enough to fling the crosshair around (it
+                    // visibly seized on hardware).
+                    const float kMaxStep = 0.09f;   // ~9% of the screen / frame
+                    float dx = nx - ch.posX;
+                    float dy = ny - ch.posY;
+                    if (dx >  kMaxStep) dx =  kMaxStep;
+                    if (dx < -kMaxStep) dx = -kMaxStep;
+                    if (dy >  kMaxStep) dy =  kMaxStep;
+                    if (dy < -kMaxStep) dy = -kMaxStep;
+                    ch.posX += dx * 0.6f;
+                    ch.posY += dy * 0.6f;
+                } else {
+                    ch.posX = nx;
+                    ch.posY = ny;
+                }
                 ch.posValid = true;
                 ch.lostFrames = 0;
             } else {

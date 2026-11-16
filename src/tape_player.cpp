@@ -93,6 +93,7 @@ bool TapePlayer::init(bool openAudio) {
 void TapePlayer::shutdown() {
     if (threadUp_) {
         OSLockMutex(&lock_);
+        quitThread_ = true;
         cmd_.action = Cmd::STOP;
         OSUnlockMutex(&lock_);
 
@@ -336,10 +337,19 @@ void TapePlayer::decodeLoop() {
     for (;;) {
         // ---- command processing ----
         OSLockMutex(&lock_);
-        if (cmd_.action == Cmd::STOP) {
-            closeSegmentLocked();
+        if (quitThread_) {
             OSUnlockMutex(&lock_);
-            return;
+            break;
+        }
+        if (cmd_.action == Cmd::STOP) {
+            // Stops the CURRENT segment, not the thread: the title screen
+            // calls stop() on the way in, and a later startIntro() must still
+            // work.  (Killing the thread here left every tape silent.)
+            closeSegmentLocked();
+            phase_ = TapePhase::IDLE;
+            cmd_.action = Cmd::NONE;
+            OSUnlockMutex(&lock_);
+            continue;
         }
         if (cmd_.action == Cmd::LOAD) {
             closeSegmentLocked();
