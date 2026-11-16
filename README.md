@@ -20,7 +20,7 @@ This is just a port of the Singe/Daphne data, but just compiled into an Aroma WU
 ## What you need
 - A Wii U with the Aroma environment. If you're here, you probably have this. If you don't, that's a whole other wiki page, my guy.
 - A Wii Remote and a sensor bar. The IR camera is the gun's sights. No sensor bar, no aim, just vibes.
-- A PC with [devkitPro](https://devkitpro.org/) installed (devkitPPC, wut, and the Wii U SDL2 / SDL2_image / SDL2_ttf / SDL2_mixer portlibs), plus ffmpeg and ffprobe somewhere in your PATH.
+- **Only if you build from source:** a PC with [devkitPro](https://devkitpro.org/) installed (devkitPPC, wut, and the Wii U SDL2 / SDL2_image / SDL2_ttf portlibs), plus ffmpeg and ffprobe somewhere in your PATH. **If you use the prebuilt `.wuhb` from Releases you do not need any of that** — just PowerShell and ffmpeg/ffprobe, because the tapes still have to be converted on your machine.
 - About 6 GB of hard drive space for the converted tapes, and a FAT32 SD card with actual room on it.
 - The ability to run a PowerShell script and wait. That's the whole skill requirement.
 
@@ -41,7 +41,21 @@ What just happened: the first script unpacked the emulator assets (fonts, sprite
 
 If a hash check screams at you, your download is bad. Re-download it. Don't argue with the hash. The hash is always right.
 
-## Step 3: build the thing
+## Step 3: pick your path
+
+### Option A — use the prebuilt `.wuhb` (no devkitPro, no compiling)
+
+Grab `Klaxon-ActionMax.wuhb` from the [Releases page](../../releases), drop it in
+`<SD>:/wiiu/apps/Klaxon-ActionMax/`, then follow Step 2 and Step 4 below for the
+tapes. That's it — the `.wuhb` already contains every font, sprite, sound and
+game config the app needs; only the tapes live outside it.
+
+Check the download if you like: the release asset is
+SHA-256 `2216D12DA1D1E1874130CFC6861768861D1E5B2B27F8F20FA11CBBDB6669A0B7`
+(6,499,724 bytes).
+
+### Option B — build it yourself
+
 ```powershell
 tools\build_and_deploy.ps1
 ```
@@ -49,7 +63,7 @@ tools\build_and_deploy.ps1
 That compiles the whole thing with the devkitPro msys2 toolchain and spits out `dist\Klaxon-ActionMax\` with the `.wuhb` and all the media laid out correctly. Fair warning: devkitPro's Wii U CMake toolchain only cooperates when launched through the msys2 bash, so the script handles that nonsense for you. You're welcome.
 
 ## Step 4: SD card
-Copy the ENTIRE `dist\Klaxon-ActionMax\` folder to `<SD>:\wiiu\apps\`. The whole folder. It should look like this when you're done:
+Copy the ENTIRE `dist\Klaxon-ActionMax\` folder to `<SD>:\wiiu\apps\`. If you took Option A, make the same folder yourself: the `.wuhb` plus the `data\media` tree that `prepare_media.ps1` produced in `sd_data\media`. The whole folder, not just the `.wuhb`. It should look like this when you're done:
 
 ```
 <SD>:\wiiu\apps\Klaxon-ActionMax\Klaxon-ActionMax.wuhb
