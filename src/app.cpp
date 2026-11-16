@@ -561,6 +561,14 @@ void App::consumeTapeFrames() {
             aimToOverlay(&ox, &oy);
             ShotDecision d = detector_.onFrame(&TapePlayer::pixelProbe,
                                                &tape_, ox, oy);
+            if (d != SHOT_NONE) {
+                // Every decision (or junk) logs what the detector actually saw:
+                // overlay coords into the 360x240 space and the RGB it sampled.
+                int pr = 0, pg = 0, pb = 0;
+                TapePlayer::pixelProbe(&tape_, ox, oy, &pr, &pg, &pb);
+                KLAXON_LOG("shot: aim=(%d,%d) rgb=%d,%d,%d decision=%d",
+                           ox, oy, pr, pg, pb, (int)d);
+            }
             if (d == SHOT_GOOD) {
                 hitLightTimer_ = 0.5f;
                 if (sndGoodHit_ >= 0) tape_.playSfx(sndGoodHit_);
@@ -804,6 +812,13 @@ void App::updatePlaying(float dt) {
 
     if (triggerNow()) {
         playChunk(sndGunshot_);
+        int tox = 0, toy = 0;
+        aimToOverlay(&tox, &toy);
+        int tr = 0, tg = 0, tb = 0;
+        TapePlayer::pixelProbe(&tape_, tox, toy, &tr, &tg, &tb);
+        KLAXON_LOG("shot: trigger aim=(%d,%d) screen=(%.2f,%.2f) aiming=%d "
+                   "rgb=%d,%d,%d",
+                   tox, toy, in.aimX, in.aimY, (int)in.aiming, tr, tg, tb);
         detector_.pullTrigger();
         if (limitedMode_) {
             ammoLeft_--;
