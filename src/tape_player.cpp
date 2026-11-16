@@ -108,7 +108,9 @@ void TapePlayer::shutdown() {
         threadUp_ = false;
     }
     if (stack_) {
-        free(stack_);
+        // Do NOT free the decode thread's stack: the thread is abandoned rather
+        // than joined, so it may still be touching this memory.  Freeing it here
+        // is what froze the console right after this log line.
         stack_ = nullptr;
     }
 

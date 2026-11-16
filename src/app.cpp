@@ -413,11 +413,38 @@ void App::aimToOverlay(int* ox, int* oy) const {
 
 void App::consumeTapeFrames() {
     while (tape_.pollFrame()) {
-        ensureVideoTexture(tape_.frame().width, tape_.frame().height);
-        if (texVideo_ && tape_.frame().rgba) {
-            const int vw = tape_.frame().width;
-            const int vh = tape_.frame().height;
-            const uint8_t* src = tape_.frame().rgba;
+        const int frameW = tape_.frame().width;
+        const int frameH = tape_.frame().height;
+        const uint8_t* src = tape_.frame().rgba;
+
+        // This renderer only displays textures up to 512 px wide: proven on
+        // hardware (the 700 px logo crashed, the 720 px video never appeared).
+        // Tapes are 720x480, so downscale to 360x240 before uploading.
+        int vw = frameW, vh = frameH;
+        if (src && frameW > 512) {
+            vw = 360;
+            vh = (int)((long long)frameH * vw / frameW);
+            if (vh < 1) vh = 1;
+            const size_t need = (size_t)vw * vh * 4;
+            if (vScaled_.size() != need) vScaled_.resize(need);
+            for (int y = 0; y < vh; y++) {
+                const int sy = (int)((long long)y * frameH / vh);
+                const uint8_t* srow = src + (size_t)sy * frameW * 4;
+                uint8_t* drow = vScaled_.data() + (size_t)y * vw * 4;
+                for (int x = 0; x < vw; x++) {
+                    const int sx = (int)((long long)x * frameW / vw);
+                    const uint8_t* p = srow + (size_t)sx * 4;
+                    drow[x * 4 + 0] = p[0];
+                    drow[x * 4 + 1] = p[1];
+                    drow[x * 4 + 2] = p[2];
+                    drow[x * 4 + 3] = p[3];
+                }
+            }
+            src = vScaled_.data();
+        }
+
+        ensureVideoTexture(vw, vh);
+        if (texVideo_ && src) {
             int rc = 0;
 
             for (int t = 0; t < tileCount_; t++) {
@@ -462,34 +489,32 @@ void App::consumeTapeFrames() {
             // Numeric proof of the video path (no screenshots needed): the
             // centre and quarter points of the decoded frame.
             if (videoDbg_ < 6 || (videoDbg_ % 30) == 0) {
-                const int vw = tape_.frame().width;
-                const int vh = tape_.frame().height;
                 const uint8_t* p  = tape_.frame().rgba;
-                const uint8_t* c1 = p + ((size_t)(vh / 2) * vw + (vw / 2)) * 4;
+                const uint8_t* c1 = p + ((size_t)(frameH / 2) * frameW + (frameW / 2)) * 4;
                 // Mean + peak luminance over the frame: proves whether a dark
                 // screen is dark CONTENT or a dead video path.
                 uint64_t sum = 0;
                 int peak = 0;
-                for (size_t i = 0; i < (size_t)vw * vh; i += 7) {
+                for (size_t i = 0; i < (size_t)frameW * frameH; i += 7) {
                     int lum = (p[i * 4] * 30 + p[i * 4 + 1] * 59 + p[i * 4 + 2] * 11) / 100;
                     sum += (uint64_t)lum;
                     if (lum > peak) peak = lum;
                 }
-                int mean = (int)(sum / (((size_t)vw * vh) / 7 + 1));
-                KLAXON_LOG("video[%d] %dx%d upd=%d mid=%d,%d,%d mean=%d peak=%d",
-                           videoDbg_, vw, vh, rc, c1[0], c1[1], c1[2], mean, peak);
+                int mean = (int)(sum / (((size_t)frameW * frameH) / 7 + 1));
+                KLAXON_LOG("video[%d] %dx%d->%dx%d upd=%d mid=%d,%d,%d mean=%d peak=%d",
+                           videoDbg_, frameW, frameH, vw, vh, rc,
+                           c1[0], c1[1], c1[2], mean, peak);
             }
             // Optional single-frame dump of the DECODED buffer (never the
             // screen): config dumpframe=N.
             if (dumpFrame_ >= 0 && !dumped_ && videoDbg_ == dumpFrame_) {
-                const int vw = tape_.frame().width, vh = tape_.frame().height;
                 std::string path = ResolveAssetPath("frame.ppm");
                 if (path.empty()) path = "/vol/external01/wiiu/apps/Klaxon-ActionMax/frame.ppm";
                 FILE* f = fopen(path.c_str(), "wb");
                 if (f) {
-                    fprintf(f, "P6\n%d %d\n255\n", vw, vh);
+                    fprintf(f, "P6\n%d %d\n255\n", frameW, frameH);
                     const uint8_t* p = tape_.frame().rgba;
-                    for (int i = 0; i < vw * vh; i++) {
+                    for (int i = 0; i < frameW * frameH; i++) {
                         fputc(p[i * 4], f); fputc(p[i * 4 + 1], f); fputc(p[i * 4 + 2], f);
                     }
                     fclose(f);

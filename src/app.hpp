@@ -120,6 +120,7 @@ private:
     int sndStage_[8]  = {};     // staged file reads (pre-audio)
     // PCM backing store: the mixer holds raw pointers, so these must outlive it.
     std::vector<std::unique_ptr<SfxClip>> sndClips_;
+    std::vector<uint8_t> vScaled_;   // downscaled frame for upload (<=512 px wide)
     int clipSlots_[8] = { -1, -1, -1, -1, -1, -1, -1, -1 };  // clip -> sound slot
 
     // Preloaded textures (read at boot, zero file I/O during the run loop)
