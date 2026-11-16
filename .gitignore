@@ -1,0 +1,31 @@
+# Build output
+build/
+dist/
+
+# Game media (users fetch tapes from archive.org themselves — see README)
+sd_data/
+
+# Copyrighted extracted Singe assets (users get them from actionmax.zip)
+romfs/assets/
+romfs/manifest/
+
+# Generated
+media/prepared_hashes.sha256
+
+# Boot jingle derived from tape audio (bundled in the .wuhb, not tracked)
+branding/splash-jingle.wav
+
+# Local workspace state
+.zwork/
+
+# Local Cemu capture output - screenshots of the desktop must never be committed
+tools/out/
+
+# Generated from the user's own actionmax.zip by tools/extract_assets.ps1 (never redistributed)
+romfs/singe/
+
+# Cloned third-party sources used for research only
+research/_src/
+
+# Local development notes (contains machine-specific paths)
+RESUME.md

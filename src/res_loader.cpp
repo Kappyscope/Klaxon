@@ -1,0 +1,259 @@
+#include "res_loader.hpp"
+
+#include <cstdio>
+#include <vector>
+
+#include <SDL.h>
+#include <SDL_image.h>
+#include <SDL_ttf.h>
+
+#include "common.hpp"
+
+namespace {
+
+struct FontEntry {
+    TTF_Font*       font = nullptr;
+    SDL_RWops*      rw   = nullptr;
+    std::vector<uint8_t>* buf = nullptr;   // owned; freetype reads lazily
+};
+
+std::vector<FontEntry> g_fonts;
+
+// stdio read of the whole file — this call pattern is proven working on
+// both /vol/content and /vol/external01 (FileExists / log writes use it).
+bool ReadWholeFile(const std::string& path, std::vector<uint8_t>& out) {
+    // Sequential reads only: no fseek/ftell (SEEK on the content mount is a
+    // hang suspect), chunked so a stuck size is visible in the log.
+    FILE* f = fopen(path.c_str(), "rb");
+    if (!f) {
+        KLAXON_LOG("res: fopen FAILED: %s", path.c_str());
+        return false;
+    }
+    uint8_t chunk[4096];
+    size_t total = 0;
+    for (;;) {
+        size_t got = fread(chunk, 1, sizeof(chunk), f);
+        total += got;
+        if (got > 0) out.insert(out.end(), chunk, chunk + got);
+        if (got < sizeof(chunk)) break;   // EOF or error
+        if (total % 16384 == 0) {
+            KLAXON_LOG("res: read %zu bytes of %s", total, path.c_str());
+        }
+    }
+    bool ok = !ferror(f) && !out.empty();
+    fclose(f);
+    if (!ok) {
+        KLAXON_LOG("res: read error at %zu bytes: %s", total, path.c_str());
+        return false;
+    }
+    KLAXON_LOG("res: read complete %s (%zu bytes)", path.c_str(), total);
+    return true;
+}
+
+}  // namespace
+
+TTF_Font* ResOpenFont(const std::string& path, int px) {
+    auto* buf = new std::vector<uint8_t>();
+    if (!ReadWholeFile(path, *buf)) {
+        KLAXON_LOG("res: font read FAILED: %s", path.c_str());
+        delete buf;
+        return nullptr;
+    }
+
+    SDL_RWops* rw = SDL_RWFromMem(buf->data(), (int)buf->size());
+    if (!rw) {
+        KLAXON_LOG("res: RWFromMem failed (%s): %s", path.c_str(), SDL_GetError());
+        delete buf;
+        return nullptr;
+    }
+
+    // freesrc = 0: we keep the RWops + buffer alive for lazy glyph reads.
+    TTF_Font* font = TTF_OpenFontRW(rw, 0, px);
+    if (!font) {
+        KLAXON_LOG("res: TTF_OpenFontRW(%s, %d) FAILED: %s", path.c_str(), px,
+                   TTF_GetError());
+        SDL_RWclose(rw);
+        delete buf;
+        return nullptr;
+    }
+
+    KLAXON_LOG("res: font ok %s (%zu bytes, %d px)", path.c_str(),
+               buf->size(), px);
+    g_fonts.push_back({ font, rw, buf });
+    return font;
+}
+
+SDL_Texture* ResLoadTexture(SDL_Renderer* renderer, const std::string& path) {
+    std::vector<uint8_t> buf;
+    if (!ReadWholeFile(path, buf)) {
+        KLAXON_LOG("res: texture read FAILED: %s", path.c_str());
+        return nullptr;
+    }
+    SDL_RWops* rw = SDL_RWFromMem(buf.data(), (int)buf.size());
+    if (!rw) return nullptr;
+    // PNG decoding completes inside this call, so the RWops is closed after.
+    SDL_Texture* tex = IMG_LoadTexture_RW(renderer, rw, 0);
+    SDL_RWclose(rw);
+    if (!tex) {
+        KLAXON_LOG("res: IMG_LoadTexture_RW(%s) FAILED: %s", path.c_str(),
+                   IMG_GetError());
+    }
+    return tex;
+}
+
+// ---------------------------------------------------------------------------
+// Staged WAVs: file read at boot (pre-audio), decode after the device opens.
+// ---------------------------------------------------------------------------
+
+struct StagedWav {
+    bool valid = false;
+    std::vector<uint8_t>* buf = nullptr;
+    std::string path;
+};
+
+std::vector<StagedWav> g_staged;
+
+int ResStageWav(const std::string& path) {
+    StagedWav s;
+    s.buf = new std::vector<uint8_t>();
+    if (!ReadWholeFile(path, *s.buf)) {
+        KLAXON_LOG("res: staged wav read FAILED: %s", path.c_str());
+        delete s.buf;
+        return -1;
+    }
+    s.valid = true;
+    s.path = path;
+    g_staged.push_back(s);
+    return (int)g_staged.size() - 1;
+}
+
+// RIFF -> interleaved S16 stereo at the device rate.  Pure memory work: no
+// SDL_mixer, no device lock, no allocation outside the output vector.
+bool ResDecodeWav(int stagedId, uint32_t deviceRate, SfxClip* out) {
+    if (!out) return false;
+    out->pcm.clear();
+    out->frames = 0;
+    if (stagedId < 0 || stagedId >= (int)g_staged.size()) return false;
+    StagedWav& s = g_staged[stagedId];
+    if (!s.valid || !s.buf) return false;
+
+    KLAXON_LOG("res: decoding staged wav %s (%zu bytes)", s.path.c_str(),
+               s.buf->size());
+
+    std::vector<uint8_t>& b = *s.buf;
+    if (b.size() <= 44 || b[0] != 'R' || b[1] != 'I' || b[2] != 'F' || b[3] != 'F'
+        || b[8] != 'W' || b[9] != 'A' || b[10] != 'V' || b[11] != 'E') {
+        KLAXON_LOG("res: not a RIFF/WAVE file: %s", s.path.c_str());
+        return false;
+    }
+
+    size_t off = 12;
+    uint32_t fmtRate = 0, fmtBits = 0, fmtChannels = 0;
+    const uint8_t* data = nullptr;
+    uint32_t dataLen = 0;
+    bool haveFmt = false, haveData = false;
+
+    while (off + 8 <= b.size()) {
+        uint32_t ckId   = (uint32_t)b[off] | ((uint32_t)b[off+1] << 8) |
+                          ((uint32_t)b[off+2] << 16) | ((uint32_t)b[off+3] << 24);
+        uint32_t ckSize = (uint32_t)b[off+4] | ((uint32_t)b[off+5] << 8) |
+                          ((uint32_t)b[off+6] << 16) | ((uint32_t)b[off+7] << 24);
+        if (ckId == 0x20746D66) {   // 'fmt '
+            fmtChannels = (uint32_t)b[off+10] | ((uint32_t)b[off+11] << 8);
+            fmtRate     = (uint32_t)b[off+12] | ((uint32_t)b[off+13] << 8) |
+                          ((uint32_t)b[off+14] << 16) | ((uint32_t)b[off+15] << 24);
+            fmtBits     = (uint32_t)b[off+22] | ((uint32_t)b[off+23] << 8);
+            haveFmt = true;
+        } else if (ckId == 0x61746164) {  // 'data'
+            data = b.data() + off + 8;
+            dataLen = (off + 8 + ckSize <= b.size()) ? ckSize
+                                                     : (uint32_t)(b.size() - off - 8);
+            haveData = true;
+        }
+        off += 8 + ckSize + (ckSize & 1);
+    }
+
+    if (!haveFmt || !haveData) {
+        KLAXON_LOG("res: wav missing fmt/data chunk: %s", s.path.c_str());
+        return false;
+    }
+    if (fmtRate == 0 || (fmtChannels != 1 && fmtChannels != 2) ||
+        (fmtBits != 8 && fmtBits != 16)) {
+        KLAXON_LOG("res: wav format unsupported rate=%u ch=%u bits=%u: %s",
+                   fmtRate, fmtChannels, fmtBits, s.path.c_str());
+        return false;
+    }
+
+    const int    ch      = (int)fmtChannels;
+    const int    bytes   = (int)fmtBits / 8;
+    const size_t inFrames = dataLen / (size_t)(bytes * ch);
+    if (inFrames == 0) {
+        KLAXON_LOG("res: wav has no samples: %s", s.path.c_str());
+        return false;
+    }
+
+    auto sampleAt = [&](size_t f, int c) -> int16_t {
+        const int src = (ch == 2) ? c : 0;
+        const size_t o = (f * (size_t)ch + (size_t)src) * (size_t)bytes;
+        if (fmtBits == 16) {
+            return (int16_t)((uint16_t)data[o] | ((uint16_t)data[o + 1] << 8));
+        }
+        return (int16_t)(((int)data[o] - 128) << 8);   // 8-bit unsigned -> S16
+    };
+
+    uint32_t outFrames = (uint32_t)((uint64_t)inFrames * deviceRate / fmtRate);
+    if (outFrames < 1) outFrames = 1;
+    out->pcm.resize((size_t)outFrames * 2);
+    out->frames = outFrames;
+
+    if (fmtRate == deviceRate && outFrames == (uint32_t)inFrames) {
+        for (size_t f = 0; f < inFrames; f++) {
+            out->pcm[f * 2 + 0] = sampleAt(f, 0);
+            out->pcm[f * 2 + 1] = sampleAt(f, 1);
+        }
+    } else {
+        for (uint32_t i = 0; i < outFrames; i++) {
+            const double t  = (double)i * (double)fmtRate / (double)deviceRate;
+            size_t i0 = (size_t)t;
+            if (i0 >= inFrames) i0 = inFrames - 1;
+            const size_t i1 = (i0 + 1 < inFrames) ? i0 + 1 : i0;
+            const double f  = t - (double)i0;
+            for (int c = 0; c < 2; c++) {
+                const double s0 = (double)sampleAt(i0, c);
+                const double s1 = (double)sampleAt(i1, c);
+                double v = s0 + (s1 - s0) * f;
+                if (v >  32767.0) v =  32767.0;
+                if (v < -32768.0) v = -32768.0;
+                out->pcm[i * 2 + c] = (int16_t)v;
+            }
+        }
+    }
+
+    KLAXON_LOG("res: pcm ready %s (%u frames, %u -> %u Hz)",
+               s.path.c_str(), outFrames, fmtRate, deviceRate);
+
+    // The staged bytes are no longer needed.
+    delete s.buf;
+    s.buf = nullptr;
+    s.valid = false;
+    return true;
+}
+
+void ResShutdown() {
+    // Frees RWops + buffers.  Fonts themselves are closed by their owners
+    // (TTF_CloseFont) BEFORE this runs.
+    for (auto& e : g_fonts) {
+        if (e.rw) SDL_RWclose(e.rw);
+        delete e.buf;
+        e.font = nullptr;
+        e.rw = nullptr;
+        e.buf = nullptr;
+    }
+    g_fonts.clear();
+    for (auto& s : g_staged) {
+        delete s.buf;
+        s.buf = nullptr;
+        s.valid = false;
+    }
+    g_staged.clear();
+}
