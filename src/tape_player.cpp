@@ -26,12 +26,14 @@ TapePlayer::~TapePlayer() {
 
 bool TapePlayer::init() {
     OSInitMutex(&lock_);
-    OSInitMutex(&ringMutex_);
 
-    // Audio ring: ~341 ms of stereo S16 pairs at 48 kHz.
+    // Audio ring: ~341 ms of stereo S16 pairs at 48 kHz.  Indices are
+    // lock-free atomics — see mixerHook (no mutex ever near the callback).
     ringCap_ = 16384;
     ring_.reset(new int16_t[ringCap_ * 2]);
-    ringRd_ = ringWr_ = ringCount_ = 0;
+    ringRd_.store(0);
+    ringWr_.store(0);
+    ringCount_.store(0);
 
     // Audio device: our prep pipeline pins every stream to 48 kHz MP2, so
     // this matches without resampling.  Failure is non-fatal (silent mode).
@@ -290,10 +292,8 @@ bool TapePlayer::openSegmentLocked() {
 
     uint32_t rate = (uint32_t)plm_get_samplerate(plm);
     if (rate > 8000 && rate < 96000) {
-        OSLockMutex(&ringMutex_);
         streamRate_ = rate;
         resamplePos_ = 0.0;
-        OSUnlockMutex(&ringMutex_);
     }
 
     KLAXON_LOG("segment open: %s phase=%d %dx%d audio=%u Hz maxFrames=%d loop=%d",
@@ -335,9 +335,7 @@ void TapePlayer::decodeLoop() {
         }
 
         // ---- audio-master pacing: don't run ahead of the device ----
-        OSLockMutex(&ringMutex_);
-        const size_t ringFill = ringCount_;
-        OSUnlockMutex(&ringMutex_);
+        const size_t ringFill = ringCount_.load(std::memory_order_acquire);
         if (ringFill > kHighWater) {
             OSSleepTicks(OSMillisecondsToTicks(3));
             continue;
@@ -423,8 +421,6 @@ void TapePlayer::audioCb(plm_t* plm, plm_samples_t* samples, void* user) {
 }
 
 void TapePlayer::pushAudio(const float* interleaved, int frames) {
-    OSLockMutex(&ringMutex_);
-
     const double rate = (streamRate_ > 0) ? (double)streamRate_
                                           : (double)deviceRate_;
     // Input frames consumed per output frame.  1.0 when the stream rate
@@ -436,11 +432,15 @@ void TapePlayer::pushAudio(const float* interleaved, int frames) {
     double pos = resamplePos_;
     int produced = 0;
     const int kMaxProduced = frames * 2 + 8;  // runaway guard
+    uint32_t wr = ringWr_.load(std::memory_order_relaxed);
 
     for (;;) {
         int idx = (int)pos;
         if (idx >= frames || produced >= kMaxProduced) break;
-        if (ringCount_ >= ringCap_) { dropped_++; break; }
+        if (ringCount_.load(std::memory_order_acquire) >= ringCap_) {
+            dropped_++;
+            break;
+        }
 
         float l = interleaved[idx * 2 + 0];
         float r = interleaved[idx * 2 + 1];
@@ -449,33 +449,37 @@ void TapePlayer::pushAudio(const float* interleaved, int frames) {
         if (r >  1.0f) r =  1.0f;
         if (r < -1.0f) r = -1.0f;
 
-        ring_[ringWr_ * 2 + 0] = (int16_t)(l * 32767.0f);
-        ring_[ringWr_ * 2 + 1] = (int16_t)(r * 32767.0f);
-        ringWr_ = (ringWr_ + 1) % ringCap_;
-        ringCount_++;
+        ring_[wr * 2 + 0] = (int16_t)(l * 32767.0f);
+        ring_[wr * 2 + 1] = (int16_t)(r * 32767.0f);
+        wr = (wr + 1) % ringCap_;
+        ringWr_.store(wr, std::memory_order_release);
+        ringCount_.fetch_add(1, std::memory_order_acq_rel);
         produced++;
         pos += step;
     }
     resamplePos_ = pos - (double)frames;  // carry into the next callback
-
-    OSUnlockMutex(&ringMutex_);
 }
 
 void TapePlayer::mixerHook(void* udata, uint8_t* stream, int len) {
+    // Runs in SDL's audio context on real hardware: NO locks, NO blocking.
+    // Lock-free SPSC consumer against pushAudio (the decode thread).
     TapePlayer* self = (TapePlayer*)udata;
     const int pairs = len / 4;  // S16 stereo
 
-    OSLockMutex(&self->ringMutex_);
-    const int n = (pairs < (int)self->ringCount_) ? pairs
-                                                  : (int)self->ringCount_;
+    uint32_t count = self->ringCount_.load(std::memory_order_acquire);
+    uint32_t rd = self->ringRd_.load(std::memory_order_relaxed);
+    const int n = (pairs < (int)count) ? pairs : (int)count;
+
     int16_t* out = (int16_t*)stream;
     for (int i = 0; i < n; i++) {
-        out[i * 2 + 0] = self->ring_[self->ringRd_ * 2 + 0];
-        out[i * 2 + 1] = self->ring_[self->ringRd_ * 2 + 1];
-        self->ringRd_ = (self->ringRd_ + 1) % self->ringCap_;
+        out[i * 2 + 0] = self->ring_[rd * 2 + 0];
+        out[i * 2 + 1] = self->ring_[rd * 2 + 1];
+        rd = (rd + 1) % self->ringCap_;
     }
-    self->ringCount_ -= n;
+    if (n > 0) {
+        self->ringRd_.store(rd, std::memory_order_release);
+        self->ringCount_.fetch_sub((uint32_t)n, std::memory_order_acq_rel);
+    }
     for (int i = n * 2; i < pairs * 2; i++) out[i] = 0;
     if (n < pairs) self->underruns_++;
-    OSUnlockMutex(&self->ringMutex_);
 }

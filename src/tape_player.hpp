@@ -24,6 +24,8 @@
 #include <coreinit/mutex.h>
 #include <coreinit/thread.h>
 
+#include <atomic>
+
 #include "hit_detector.hpp"
 
 struct plm_t;
@@ -138,13 +140,16 @@ private:
     std::unique_ptr<uint8_t[]> heldBuf_;
     TapeFrame heldFrame_{};
 
-    // --- audio ring (ringMutex_) -------------------------------------------
-    OSMutex  ringMutex_{};
+    // --- audio ring (LOCK-FREE: the mixer callback runs in SDL's audio
+    // context where blocking on a mutex wedges the audio thread on real
+    // hardware — atomics only, no OSMutex anywhere near the callback) ---
     std::unique_ptr<int16_t[]> ring_;
     size_t ringCap_ = 0;          // stereo sample-pairs
-    size_t ringRd_ = 0, ringWr_ = 0, ringCount_ = 0;
-    uint32_t underruns_ = 0;
-    uint32_t dropped_ = 0;
+    std::atomic<uint32_t> ringRd_{0};
+    std::atomic<uint32_t> ringWr_{0};
+    std::atomic<uint32_t> ringCount_{0};
+    std::atomic<uint32_t> underruns_{0};
+    std::atomic<uint32_t> dropped_{0};
     uint32_t deviceRate_ = 48000;
     uint32_t streamRate_ = 48000;
     double   resamplePos_ = 0.0;
