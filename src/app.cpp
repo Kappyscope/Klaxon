@@ -46,6 +46,7 @@ void App::loadSettings() {
         else if (key == "dumpframe") dumpFrame_ = ParseIntDefault(val, -1);
         else if (key == "video_static") videoStatic_ = !(val == "0" || val == "false");
         else if (key == "video_mode") videoMode_ = ParseIntDefault(val, 0);
+        else if (key == "logo") useLogo_ = !(val == "0" || val == "false");
     }
     fclose(f);
 }
@@ -562,20 +563,34 @@ void App::run() {
         lastTicks = now;
         pulse_ += dt;
 
+        // Breadcrumbs for the first few frames: if the console dies here, the
+        // log names the exact stage instead of just going quiet.
+        const bool trace = (frameCount_ < 4);
+
+        if (trace) KLAXON_LOG("loop%u: input", frameCount_);
         input_.update(dt);
+        if (trace) KLAXON_LOG("loop%u: input ok (aiming=%d trig=%d)",
+                              frameCount_, (int)input_.state().aiming,
+                              (int)input_.state().triggerPressed);
         if (input_.quitRequested()) {
             KLAXON_LOG("quit gesture (hold -)");
             running_ = false;
             break;
         }
 
+        if (trace) KLAXON_LOG("loop%u: consume", frameCount_);
         consumeTapeFrames();
         if (!running_) break;
 
+        if (trace) KLAXON_LOG("loop%u: update", frameCount_);
         update(dt);
+        if (trace) KLAXON_LOG("loop%u: update ok state=%d", frameCount_, (int)state_);
         if (!running_) break;
+
+        if (trace) KLAXON_LOG("loop%u: render state=%d", frameCount_, (int)state_);
         render();
         frameCount_++;
+        if (trace) KLAXON_LOG("loop%u: render ok", frameCount_);
         if (frameCount_ % 60 == 0) {
             KLAXON_LOG("alive: frame %d state=%d underruns=%u dropped=%u "
                        "audioPeriods=%u voices=%d",
@@ -804,7 +819,7 @@ void App::renderSplash() {
                 : (stateTime_ > 1.1f ? (1.6f - stateTime_) / 0.5f : 1.0f);
     if (fade < 0) fade = 0;
     SDL_Texture* logo = hud_.texLogo();
-    if (logo) {
+    if (useLogo_ && logo) {
         SDL_SetTextureAlphaMod(logo, (Uint8)(255 * fade));
         hud_.drawLogo(SCREEN_W / 2, (SCREEN_H - 200) / 2 - 30, 700);
         SDL_SetTextureAlphaMod(logo, 255);
@@ -855,19 +870,33 @@ void App::renderTitle() {
         SDL_RenderFillRect(renderer_, &rule);
     }
 
-    // Wordmark: the real KLAXON logo, with the subtitle under it.
+    // Wordmark: the KLAXON logo asset, or the text wordmark when logo=0.
     if (titleLevel_ >= 2) {
         const int logoW = 560;
         const int logoTop = 44;
-        const int logoH = 675 * logoW / 1822;   // asset is 1822x675
-        hud_.drawLogo(SCREEN_W / 2, logoTop, logoW);
+        const int logoH = 675 * logoW / 1822;   // asset ratio 1822x675
+        const bool drewLogo = (useLogo_ && hud_.texLogo() != nullptr);
+        int subY = 130;
+        if (drewLogo) {
+            hud_.drawLogo(SCREEN_W / 2, logoTop, logoW);
+            subY = logoTop + logoH + 10;
+        } else {
+            int w = 0, h = 0;
+            SDL_Color accent = { 92, 160, 255, 255 };
+            SDL_Texture* mark = hud_.textTexture("wordmark", "KLAXON",
+                                                 hud_.fontDisplay(96), accent, &w, &h);
+            if (mark) {
+                SDL_Rect dst = { (SCREEN_W - w) / 2, 60, w, h };
+                SDL_RenderCopy(renderer_, mark, nullptr, &dst);
+            }
+        }
 
         int sw = 0, sh = 0;
         SDL_Color subCol = { 176, 205, 245, 255 };
         SDL_Texture* sub = hud_.textTexture("titlesub", "A C T I O N   M A X",
                                             hud_.fontBody(20), subCol, &sw, &sh);
         if (sub) {
-            SDL_Rect dst = { (SCREEN_W - sw) / 2, logoTop + logoH + 10, sw, sh };
+            SDL_Rect dst = { (SCREEN_W - sw) / 2, subY, sw, sh };
             SDL_RenderCopy(renderer_, sub, nullptr, &dst);
         }
     }  // titleLevel_ >= 2 (wordmark)

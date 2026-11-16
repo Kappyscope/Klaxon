@@ -147,6 +147,7 @@ private:
     int   videoDbg_   = 0;      // decoded-frame log counter
     bool  videoStatic_ = true;  // wut: streaming textures upload "ok" but never show
     int   videoMode_   = 1;     // 0 = update, 1 = texture from surface, 2 = lock/unlock
+    bool  useLogo_     = true;  // config logo=0 falls back to the text wordmark
     int   dumpFrame_  = -1;     // config: dumpframe=N writes that decoded frame
     bool  dumped_     = false;
     bool shutDown_    = false;
