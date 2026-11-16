@@ -291,17 +291,19 @@ void App::shutdown() {
         KLAXON_LOG("shutdown: watchdog armed (5 s)");
     }
 
-    // Deliberately minimal.  Every heavier teardown tried here (audio device
-    // pause/close, renderer destroy, font free) has frozen the console during
-    // the Wii U Menu handoff.  The SDL Wii U video driver's own quit path does
-    // exactly what the OS waits for: WHBGfxShutdown() + WHBProcShutdown().
-    KLAXON_LOG("shutdown: SDL video quit (ProcUI handshake)");
-    SDL_QuitSubSystem(SDL_INIT_VIDEO);
+    // Ask the OS for the menu FIRST, exactly as the Homebrew App Store does
+    // (chesto RootDisplay::quit -> SYSLaunchMenu on Wii U).  Without this the
+    // console sits on the transition screen: nothing ever states where the app
+    // wants to go next.
+    KLAXON_LOG("shutdown: SYSLaunchMenu");
+    SYSLaunchMenu();
 
-    // SDL's Wii U driver only shuts whb's ProcUI down if it was the one that
-    // started it (src/video/wiiu/SDL_wiiuvideo.c: using_whb_proc).  Under Aroma
-    // ProcUI is already running at SDL_Init time, so that flag stays 0 and the
-    // OS never gets its release - which is exactly the stuck transition screen.
+    // Chesto's teardown order (DrawUtils::CST_DrawExit).
+    KLAXON_LOG("shutdown: SDL_Quit");
+    SDL_Quit();
+
+    // If SDL did not own ProcUI (Aroma), release it ourselves; harmless when
+    // SDL already did (ProcUIIsRunning() is then false).
     if (ProcUIIsRunning()) {
         KLAXON_LOG("shutdown: ProcUIShutdown (SDL did not own ProcUI)");
         ProcUIShutdown();

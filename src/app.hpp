@@ -19,6 +19,7 @@
 #include <unistd.h>
 
 #include <proc_ui/procui.h>
+#include <sysapp/launch.h>
 
 #include <SDL.h>
 
