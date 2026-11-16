@@ -297,6 +297,16 @@ void App::shutdown() {
     // exactly what the OS waits for: WHBGfxShutdown() + WHBProcShutdown().
     KLAXON_LOG("shutdown: SDL video quit (ProcUI handshake)");
     SDL_QuitSubSystem(SDL_INIT_VIDEO);
+
+    // SDL's Wii U driver only shuts whb's ProcUI down if it was the one that
+    // started it (src/video/wiiu/SDL_wiiuvideo.c: using_whb_proc).  Under Aroma
+    // ProcUI is already running at SDL_Init time, so that flag stays 0 and the
+    // OS never gets its release - which is exactly the stuck transition screen.
+    if (ProcUIIsRunning()) {
+        KLAXON_LOG("shutdown: ProcUIShutdown (SDL did not own ProcUI)");
+        ProcUIShutdown();
+    }
+
     KLAXON_LOG("shutdown: done");
 }
 
@@ -354,6 +364,7 @@ void App::startSelectedGameIntro(bool limited) {
     stateTime_ = 0.0f;
     inputLock_ = 0.40f;
     KLAXON_LOG("intro: %s (limited=%d)", cfg.title.c_str(), (int)limited);
+    KLAXON_LOG("game start: %s score reset to 0", cfg.title.c_str());
 }
 
 void App::finishGame(bool outOfAmmo) {
@@ -566,8 +577,8 @@ void App::consumeTapeFrames() {
                 // overlay coords into the 360x240 space and the RGB it sampled.
                 int pr = 0, pg = 0, pb = 0;
                 TapePlayer::pixelProbe(&tape_, ox, oy, &pr, &pg, &pb);
-                KLAXON_LOG("shot: aim=(%d,%d) rgb=%d,%d,%d decision=%d",
-                           ox, oy, pr, pg, pb, (int)d);
+                KLAXON_LOG("shot: aim=(%d,%d) rgb=%d,%d,%d decision=%d score=%d",
+                           ox, oy, pr, pg, pb, (int)d, detector_.score());
             }
             if (d == SHOT_GOOD) {
                 hitLightTimer_ = 0.5f;

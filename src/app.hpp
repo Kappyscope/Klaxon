@@ -18,6 +18,8 @@
 #include <time.h>
 #include <unistd.h>
 
+#include <proc_ui/procui.h>
+
 #include <SDL.h>
 
 #include "game_registry.hpp"
