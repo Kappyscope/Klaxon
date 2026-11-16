@@ -1,7 +1,7 @@
 // app.hpp — Klaxon application: screens, game flow, ProcUI-safe main loop.
 //
 // Flow (faithful to the Singe state machine, presentation redesigned):
-//   SPLASH -> TITLE -> GAME_SELECT -> GAME_TYPE -> INTRO -> PLAYING
+//   SPLASH -> TITLE -> GAME_SELECT -> INTRO -> PLAYING
 //                                                       ^          |
 //                                                       |          v
 //                                                       +------ GAME_OVER
@@ -107,9 +107,7 @@ private:
 
     int  selectedGame_ = 0;
     int  activeGame_   = -1;
-    bool limitedMode_  = false;
-    int  ammoLeft_     = 0;
-    static const int kAmmoCount = 5;
+    bool limitedMode_  = false;   // always false: the real Action Max has no ammo limit
 
     HitDetector detector_;
 

@@ -333,8 +333,8 @@ void App::enterTitle() {
 
 void App::startSelectedGameIntro(bool limited) {
     const GameConfig& cfg = registry_.games()[selectedGame_];
-    limitedMode_ = limited;
-    ammoLeft_ = limited ? kAmmoCount : 0;
+    (void)limited;   // no game-type choice on the real Action Max
+    limitedMode_ = false;
 
     GamePlayfield pf;
     pf.highThreshold = cfg.highThreshold;
@@ -572,7 +572,6 @@ void App::consumeTapeFrames() {
             if (d == SHOT_GOOD) {
                 hitLightTimer_ = 0.5f;
                 if (sndGoodHit_ >= 0) tape_.playSfx(sndGoodHit_);
-                if (limitedMode_) ammoLeft_++;  // refund (net zero)
             } else if (d == SHOT_BAD) {
                 if (sndBadHit_ >= 0) tape_.playSfx(sndBadHit_);
             }
@@ -773,13 +772,10 @@ void App::updateGameSelect(float) {
                        cfg.id.c_str(), cfg.statusNote.c_str());
             return;  // stay; the card is marked MISSING on screen
         }
-        KLAXON_LOG("-> GAME_TYPE (%s)", cfg.title.c_str());
-        state_ = AppState::GAME_TYPE;
-        stateTime_ = 0.0f;
-        inputLock_ = 0.30f;
-        if (!registry_.menuMediaPath.empty()) {
-            tape_.startMenuLoop(registry_.menuMediaPath);
-        }
+        // The real Action Max has no game-type choice and no ammo limit: the
+        // tape just plays and the console scores hits.  Straight to the intro.
+        KLAXON_LOG("-> INTRO (%s)", cfg.title.c_str());
+        startSelectedGameIntro(false);
     }
 }
 
@@ -820,13 +816,6 @@ void App::updatePlaying(float dt) {
                    "rgb=%d,%d,%d",
                    tox, toy, in.aimX, in.aimY, (int)in.aiming, tr, tg, tb);
         detector_.pullTrigger();
-        if (limitedMode_) {
-            ammoLeft_--;
-            if (ammoLeft_ < 0) {
-                finishGame(true);   // Singe: out of ammo -> game over now
-                return;
-            }
-        }
     }
 
     if (tape_.phaseEnded()) {
@@ -1217,11 +1206,6 @@ void App::renderVideoScreen(bool hud) {
         hud_.drawScore(84, SCREEN_H - 120, detector_.score());
     }
 
-    // Right pillar bar: ammo (limited mode).
-    if (playing && limitedMode_) {
-        hud_.drawAmmo(SCREEN_W - 24, 40, ammoLeft_);
-    }
-
     // Crosshair (aim position, any state with a remote).
     const InputManager::State& in = input_.state();
     if (in.aiming) {
@@ -1262,7 +1246,7 @@ void App::renderGameOver() {
     SDL_Color white = { 235, 235, 240, 255 };
     int lw = 0, lh = 0;
     int y = 260;
-    struct { const char* id; std::string text; } rows[6];
+    struct { const char* id; std::string text; } rows[5];
     rows[0] = { "go0", cfg ? cfg->title : "" };
     snprintf(buf, sizeof(buf), "Shots Fired: %d", lastShots_);
     rows[1] = { "go1", buf };
@@ -1274,9 +1258,8 @@ void App::renderGameOver() {
     int pct = (lastShots_ > 0) ? (100 * shotScore) / lastShots_ : 0;
     snprintf(buf, sizeof(buf), "Game Score:  %d  (%d%%)", shotScore, pct);
     rows[4] = { "go4", buf };
-    rows[5] = { "go5", limitedMode_ ? "Mode: Limited Ammo" : "Mode: Standard" };
 
-    for (int i = 0; i < 6; i++) {
+    for (int i = 0; i < 5; i++) {
         SDL_Texture* t = hud_.textTexture(rows[i].id, rows[i].text.c_str(),
                                           hud_.fontBody(20), white, &lw, &lh);
         if (t) {
