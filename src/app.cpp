@@ -281,6 +281,16 @@ void App::shutdown() {
 
     tape_.shutdown();   // decode thread only; touches no audio-device calls
 
+    // Watchdog: if the ProcUI/GX2 teardown below stalls (it has, repeatedly),
+    // the console is left staring at the Wii U Menu transition screen forever.
+    // Five seconds is plenty for a healthy handshake, so anything after that
+    // means we force the process down and let the OS take the screen back.
+    pthread_t dog;
+    if (pthread_create(&dog, nullptr, &App::shutdownWatchdog, nullptr) == 0) {
+        pthread_detach(dog);
+        KLAXON_LOG("shutdown: watchdog armed (5 s)");
+    }
+
     // Deliberately minimal.  Every heavier teardown tried here (audio device
     // pause/close, renderer destroy, font free) has frozen the console during
     // the Wii U Menu handoff.  The SDL Wii U video driver's own quit path does
@@ -288,6 +298,16 @@ void App::shutdown() {
     KLAXON_LOG("shutdown: SDL video quit (ProcUI handshake)");
     SDL_QuitSubSystem(SDL_INIT_VIDEO);
     KLAXON_LOG("shutdown: done");
+}
+
+void* App::shutdownWatchdog(void*) {
+    struct timespec ts;
+    ts.tv_sec  = 5;
+    ts.tv_nsec = 0;
+    nanosleep(&ts, nullptr);
+    KLAXON_LOG("shutdown: handshake stalled - forcing exit");
+    _exit(0);
+    return nullptr;
 }
 
 // ---------------------------------------------------------------------------
@@ -380,8 +400,8 @@ void App::ensureVideoTexture(int w, int h) {
                                        access, w - tileW_, h);
     }
     if (texVideo_) {
-        SDL_SetTextureBlendMode(texVideo_, SDL_BLENDMODE_NONE);
-        if (texVideo2_) SDL_SetTextureBlendMode(texVideo2_, SDL_BLENDMODE_NONE);
+        SDL_SetTextureBlendMode(texVideo_, SDL_BLENDMODE_BLEND);
+        if (texVideo2_) SDL_SetTextureBlendMode(texVideo2_, SDL_BLENDMODE_BLEND);
         texVideoW_ = w;
         texVideoH_ = h;
         KLAXON_LOG("video texture %dx%d in %d tile(s) of %d px (%s)",
@@ -425,6 +445,13 @@ void App::consumeTapeFrames() {
             vw = 360;
             vh = (int)((long long)frameH * vw / frameW);
             if (vh < 1) vh = 1;
+        }
+
+        // Always stage through vScaled_ with an OPAQUE alpha byte: pl_mpeg's
+        // converters write only R,G,B and leave alpha uninitialised (usually 0),
+        // and the Wii U pixel shader multiplies the sample by its alpha - which
+        // is why every frame uploaded "fine" and drew nothing.
+        if (src && vw > 0 && vh > 0) {
             const size_t need = (size_t)vw * vh * 4;
             if (vScaled_.size() != need) vScaled_.resize(need);
             for (int y = 0; y < vh; y++) {
@@ -437,7 +464,7 @@ void App::consumeTapeFrames() {
                     drow[x * 4 + 0] = p[0];
                     drow[x * 4 + 1] = p[1];
                     drow[x * 4 + 2] = p[2];
-                    drow[x * 4 + 3] = p[3];
+                    drow[x * 4 + 3] = 255;
                 }
             }
             src = vScaled_.data();
@@ -463,7 +490,7 @@ void App::consumeTapeFrames() {
                     SDL_Texture* nt = SDL_CreateTextureFromSurface(renderer_, s);
                     SDL_FreeSurface(s);
                     if (!nt) { rc = -1; continue; }
-                    SDL_SetTextureBlendMode(nt, SDL_BLENDMODE_NONE);
+                    SDL_SetTextureBlendMode(nt, SDL_BLENDMODE_BLEND);
                     SDL_DestroyTexture(tex);
                     if (t == 0) texVideo_ = nt; else texVideo2_ = nt;
                 } else if (videoMode_ == 2) {

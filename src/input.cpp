@@ -15,13 +15,18 @@ static const int IR_HOLD_FRAMES = 30;
 // Quit gesture: hold "-" on the Wii Remote (+ on the GamePad) this long.
 static const float QUIT_HOLD_SECONDS = 1.2f;
 
-// Median of three: kills single-sample IR spikes without adding lag.
-static float Median3(const float v[3]) {
-    float a = v[0], b = v[1], c = v[2], t;
-    if (a > b) { t = a; a = b; b = t; }
-    if (b > c) { t = b; b = c; c = t; }
-    if (a > b) { t = a; a = b; b = t; }
-    return b;
+// Median of five: the IR camera alternates between the two sensor-bar LEDs, so
+// single samples are unreliable; the median kills those spikes outright.
+static float Median5(const float v[5]) {
+    float a[5];
+    for (int i = 0; i < 5; i++) a[i] = v[i];
+    for (int i = 1; i < 5; i++) {
+        float k = a[i];
+        int j = i - 1;
+        while (j >= 0 && a[j] > k) { a[j + 1] = a[j]; j--; }
+        a[j + 1] = k;
+    }
+    return a[2];
 }
 
 bool InputManager::init() {
@@ -120,27 +125,26 @@ void InputManager::update(float dt) {
                     // bar LEDs, which is what made the crosshair "seize".
                     ch.rawX[ch.rawIdx] = nx;
                     ch.rawY[ch.rawIdx] = ny;
-                    ch.rawIdx = (ch.rawIdx + 1) % 3;
-                    const float mx = Median3(ch.rawX);
-                    const float my = Median3(ch.rawY);
+                    ch.rawIdx = (ch.rawIdx + 1) % 5;
+                    const float mx = Median5(ch.rawX);
+                    const float my = Median5(ch.rawY);
 
-                    const float kMaxStep = 0.06f;   // ~6% of the screen / frame
+                    const float kMaxStep = 0.05f;   // ~5% of the screen / frame
                     float dx = mx - ch.posX;
                     float dy = my - ch.posY;
                     // Sub-threshold movement is jitter, not aim.
-                    if (std::fabs(dx) < 0.010f) dx = 0.0f;
-                    if (std::fabs(dy) < 0.010f) dy = 0.0f;
+                    if (std::fabs(dx) < 0.012f) dx = 0.0f;
+                    if (std::fabs(dy) < 0.012f) dy = 0.0f;
                     if (dx >  kMaxStep) dx =  kMaxStep;
                     if (dx < -kMaxStep) dx = -kMaxStep;
                     if (dy >  kMaxStep) dy =  kMaxStep;
                     if (dy < -kMaxStep) dy = -kMaxStep;
-                    ch.posX += dx * 0.6f;
-                    ch.posY += dy * 0.6f;
+                    ch.posX += dx * 0.5f;
+                    ch.posY += dy * 0.5f;
                 } else {
                     ch.posX = nx;
                     ch.posY = ny;
-                    ch.rawX[0] = ch.rawX[1] = ch.rawX[2] = nx;
-                    ch.rawY[0] = ch.rawY[1] = ch.rawY[2] = ny;
+                    for (int i = 0; i < 5; i++) { ch.rawX[i] = nx; ch.rawY[i] = ny; }
                 }
                 ch.posValid = true;
                 ch.lostFrames = 0;

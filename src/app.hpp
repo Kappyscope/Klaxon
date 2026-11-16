@@ -14,6 +14,10 @@
 #include <memory>
 #include <vector>
 
+#include <pthread.h>
+#include <time.h>
+#include <unistd.h>
+
 #include <SDL.h>
 
 #include "game_registry.hpp"
@@ -74,6 +78,7 @@ private:
     void aimToOverlay(int* ox, int* oy) const;
     void playChunk(int id);
     bool triggerNow() const;   // trigger, gated by the post-transition lock
+    static void* shutdownWatchdog(void*);   // force-exit if the handshake stalls
     void stageSounds();
     void decodeSounds();
     void registerSounds();
