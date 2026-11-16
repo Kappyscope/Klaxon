@@ -26,10 +26,64 @@ $ErrorActionPreference = 'Stop'
 $Root      = Split-Path -Parent $PSScriptRoot
 if (-not (Test-Path (Join-Path $Root 'CMakeLists.txt'))) { $Root = $PSScriptRoot }
 $Bash      = 'E:\devkitPro\msys2\usr\bin\bash.exe'
-$BuildDir  = '/e/klaxon-build'
-$SrcDir    = '/e/klaxon-src'
+
+# ---------------------------------------------------------------------------
+# 0. Space-free paths
+#
+# The devkitPro msys2 toolchain mangles Windows-style arguments and both cmake
+# and make choke on spaces, so the project is reached through a junction whose
+# path has no spaces.  Earlier versions simply assumed E:\klaxon-src already
+# existed (it was made by hand), which meant a fresh clone could not build.
+# This creates it, or falls back to %TEMP% when the project drive is not
+# writable, and derives the build directory the same way.
+# ---------------------------------------------------------------------------
+function ConvertTo-MsysPath([string]$win) {
+    return '/' + $win.Substring(0, 1).ToLower() + (($win.Substring(2)) -replace '\\', '/')
+}
+
+function Ensure-SourceJunction([string]$target) {
+    $driveRoot = (Split-Path -Qualifier $target) + '\'
+    $candidates = @( (Join-Path $driveRoot 'klaxon-src') )
+    if ($env:TEMP -and ($env:TEMP -notmatch '\s')) { $candidates += (Join-Path $env:TEMP 'klaxon-src') }
+
+    foreach ($path in $candidates) {
+        if ($path -match '\s') { continue }
+        if (Test-Path $path) {
+            $item = Get-Item $path -Force
+            if ($item.LinkType -eq 'Junction' -and @($item.Target)[0] -eq $target) {
+                return $path                      # already correct
+            }
+            if ($item.LinkType -eq 'Junction') { Remove-Item $path -Force }
+            elseif ((Get-ChildItem $path -Force | Measure-Object).Count -eq 0) { Remove-Item $path -Force }
+            else { continue }                     # real directory with content: leave it alone
+        }
+        try {
+            New-Item -ItemType Junction -Path $path -Target $target -ErrorAction Stop | Out-Null
+            return $path
+        } catch { }
+    }
+    return $null
+}
+
+$SrcJunction = Ensure-SourceJunction $Root
+if (-not $SrcJunction) {
+    Write-Host 'FATAL: could not create a space-free junction to the project folder.' -ForegroundColor Red
+    Write-Host '       Move the project to a path without spaces, or create one manually, e.g.:' -ForegroundColor Red
+    Write-Host ('       New-Item -ItemType Junction -Path C:\klaxon-src -Target "{0}"' -f $Root) -ForegroundColor Red
+    exit 1
+}
+
+$driveRoot = (Split-Path -Qualifier $Root) + '\'
+$buildCandidates = @( (Join-Path $driveRoot 'klaxon-build') )
+if ($env:TEMP -and ($env:TEMP -notmatch '\s')) { $buildCandidates += (Join-Path $env:TEMP 'klaxon-build') }
+$BuildWin = $buildCandidates | Where-Object { $_ -notmatch '\s' } | Select-Object -First 1
+if (-not $BuildWin) { Write-Host 'FATAL: no space-free location for the build tree.' -ForegroundColor Red; exit 1 }
+New-Item -ItemType Directory -Force -Path $BuildWin | Out-Null
+
+$BuildDir  = ConvertTo-MsysPath $BuildWin
+$SrcDir    = ConvertTo-MsysPath $SrcJunction
 $DistApp   = Join-Path $Root 'dist\Klaxon-ActionMax'
-$WuhbInBuild  = 'E:\klaxon-build\Klaxon-ActionMax.wuhb'
+$WuhbInBuild  = Join-Path $BuildWin 'Klaxon-ActionMax.wuhb'
 $WuhbInDist   = Join-Path $DistApp 'Klaxon-ActionMax.wuhb'
 $MediaDir     = Join-Path $Root 'sd_data\media'
 
@@ -39,6 +93,9 @@ function Fail($msg) {
     exit 1
 }
 
+Log ('source junction: {0}' -f $SrcJunction)
+Log ('build tree     : {0}' -f $BuildWin)
+
 Write-Host ''
 Write-Host '======================================================' -ForegroundColor Cyan
 Write-Host '  KLAXON - build & deploy' -ForegroundColor Cyan
@@ -47,7 +104,7 @@ Write-Host '======================================================' -ForegroundC
 # ---------------------------------------------------------------------------
 # 1. Configure (only when the build tree is missing)
 # ---------------------------------------------------------------------------
-if (-not (Test-Path 'E:\klaxon-build\CMakeCache.txt')) {
+if (-not (Test-Path (Join-Path $BuildWin 'CMakeCache.txt'))) {
     Log 'configuring build tree (msys2 cmake)...'
     & $Bash -lc "cd $SrcDir && cmake -B $BuildDir -DCMAKE_TOOLCHAIN_FILE=/opt/devkitpro/cmake/WiiU.cmake 2>&1"
     if ($LASTEXITCODE -ne 0) { Fail 'cmake configure failed' }

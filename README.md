@@ -60,7 +60,7 @@ SHA-256 `2216D12DA1D1E1874130CFC6861768861D1E5B2B27F8F20FA11CBBDB6669A0B7`
 tools\build_and_deploy.ps1
 ```
 
-That compiles the whole thing with the devkitPro msys2 toolchain and spits out `dist\Klaxon-ActionMax\` with the `.wuhb` and all the media laid out correctly. Fair warning: devkitPro's Wii U CMake toolchain only cooperates when launched through the msys2 bash, so the script handles that nonsense for you. You're welcome.
+That compiles the whole thing with the devkitPro msys2 toolchain and spits out `dist\Klaxon-ActionMax\` with the `.wuhb` and all the media laid out correctly. Fair warning: devkitPro's Wii U CMake toolchain only cooperates when launched through the msys2 bash, so the script handles that nonsense for you — including creating the space-free `klaxon-src` junction it builds through, so a fresh clone just works. You're welcome.
 
 ## Step 4: SD card
 Copy the ENTIRE `dist\Klaxon-ActionMax\` folder to `<SD>:\wiiu\apps\`. If you took Option A, make the same folder yourself: the `.wuhb` plus the `data\media` tree that `prepare_media.ps1` produced in `sd_data\media`. The whole folder, not just the `.wuhb`. It should look like this when you're done:
