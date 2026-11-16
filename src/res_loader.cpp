@@ -164,7 +164,7 @@ Mix_Chunk* ResDecodeWav(int stagedId) {
         && b[8] == 'W' && b[9] == 'A' && b[10] == 'V' && b[11] == 'E') {
         size_t off = 12;
         uint32_t fmtRate = 0, fmtBits = 0, fmtChannels = 0;
-        const uint8_t* data = nullptr;
+        uint8_t* data = nullptr;
         uint32_t dataLen = 0;
         bool haveFmt = false, haveData = false;
         while (off + 8 <= b.size()) {
