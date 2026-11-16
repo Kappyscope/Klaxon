@@ -120,7 +120,10 @@ bool App::init() {
     SDL_RenderPresent(renderer_);
 
     registry_.load(fullVerify_);
-    tape_.init();
+
+    // All asset file reads happen BEFORE the audio stack and decode thread
+    // start: on hardware, content-mount reads hang once SDL's audio thread
+    // is live.  Fonts/textures/sounds land fully in memory here.
     input_.init();
     hud_.init(renderer_);
     loadSounds();
@@ -129,6 +132,9 @@ bool App::init() {
     // Title jingle chaining (Singe behaviour).
     g_appForAudio = this;
     Mix_ChannelFinished(&channelFinishedCb);
+
+    // Audio device + decode thread LAST, after every file read is done.
+    tape_.init();
 
     state_ = (registry_.readyCount() > 0 && registry_.commonReady)
                  ? AppState::SPLASH

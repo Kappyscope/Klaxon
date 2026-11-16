@@ -64,9 +64,14 @@ std::string ResolveMediaPath(const std::string& relativePath) {
 }
 
 std::string ResolveAssetPath(const std::string& relativePath) {
+    // SD data/ layout FIRST: streaming reads from /vol/content can hang on
+    // hardware once the audio stack is up, so prefer plain SD files.
+    for (int i = 0; kSdPrefixes[i]; i++) {
+        std::string full = std::string(kSdPrefixes[i]) + "data/" + relativePath;
+        if (FileExists(full)) return full;
+    }
     std::string content = std::string("/vol/content/") + relativePath;
     if (FileExists(content)) return content;
-
     for (int i = 0; kSdPrefixes[i]; i++) {
         std::string full = std::string(kSdPrefixes[i]) + relativePath;
         if (FileExists(full)) return full;

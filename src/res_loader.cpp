@@ -23,22 +23,31 @@ std::vector<FontEntry> g_fonts;
 // stdio read of the whole file — this call pattern is proven working on
 // both /vol/content and /vol/external01 (FileExists / log writes use it).
 bool ReadWholeFile(const std::string& path, std::vector<uint8_t>& out) {
+    // Sequential reads only: no fseek/ftell (SEEK on the content mount is a
+    // hang suspect), chunked so a stuck size is visible in the log.
     FILE* f = fopen(path.c_str(), "rb");
-    if (!f) return false;
-    fseek(f, 0, SEEK_END);
-    long size = ftell(f);
-    fseek(f, 0, SEEK_SET);
-    if (size <= 0) {
-        fclose(f);
+    if (!f) {
+        KLAXON_LOG("res: fopen FAILED: %s", path.c_str());
         return false;
     }
-    out.resize((size_t)size);
-    size_t got = fread(out.data(), 1, (size_t)size, f);
+    uint8_t chunk[4096];
+    size_t total = 0;
+    for (;;) {
+        size_t got = fread(chunk, 1, sizeof(chunk), f);
+        total += got;
+        if (got > 0) out.insert(out.end(), chunk, chunk + got);
+        if (got < sizeof(chunk)) break;   // EOF or error
+        if (total % 16384 == 0) {
+            KLAXON_LOG("res: read %zu bytes of %s", total, path.c_str());
+        }
+    }
+    bool ok = !ferror(f) && !out.empty();
     fclose(f);
-    if (got != (size_t)size) {
-        out.clear();
+    if (!ok) {
+        KLAXON_LOG("res: read error at %zu bytes: %s", total, path.c_str());
         return false;
     }
+    KLAXON_LOG("res: read complete %s (%zu bytes)", path.c_str(), total);
     return true;
 }
 

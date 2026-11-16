@@ -92,6 +92,16 @@ if (Test-Path $MediaDir) {
     Log '  Run tools/prepare_media.ps1 first - see README.md.' -ForegroundColor Yellow
 }
 
+# Assets also staged to the SD: the app reads them from data/assets FIRST
+# (content-mount reads can hang on hardware once audio is up).
+foreach ($sub in @('assets', 'games', 'manifest')) {
+    $src = Join-Path $Root ("romfs\" + $sub)
+    if (Test-Path $src) {
+        Copy-Item -Path $src -Destination (Join-Path $dataDir $sub) -Recurse -Force
+        Log ("  data/{0}: staged (SD-first asset reads)" -f $sub)
+    }
+}
+
 # ---------------------------------------------------------------------------
 # 4. Done
 # ---------------------------------------------------------------------------
