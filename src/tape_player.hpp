@@ -158,6 +158,7 @@ private:
     OSMutex  lock_{};
     OSThread thread_{};
     bool     threadUp_ = false;
+    bool     shutDown_ = false;
     std::atomic<bool> threadDone_{false};   // set by the decode thread on exit
     uint8_t* stack_ = nullptr;   // decode-thread stack (freed in shutdown)
 

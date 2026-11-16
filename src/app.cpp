@@ -291,16 +291,16 @@ void App::shutdown() {
         KLAXON_LOG("shutdown: watchdog armed (5 s)");
     }
 
-    // Ask the OS for the menu FIRST, exactly as the Homebrew App Store does
-    // (chesto RootDisplay::quit -> SYSLaunchMenu on Wii U).  Without this the
-    // console sits on the transition screen: nothing ever states where the app
-    // wants to go next.
-    KLAXON_LOG("shutdown: SYSLaunchMenu");
-    SYSLaunchMenu();
+    // NOTE: do NOT call SYSLaunchMenu() here.  Hardware log shows it never
+    // returns when the OS already requested the exit (HOME -> Close Software);
+    // the OS already knows where to go, it is waiting for this process to end.
+    // (The App Store calls it because it exits from its own UI, not from an
+    // OS-initiated exit.)
 
-    // Chesto's teardown order (DrawUtils::CST_DrawExit).
-    KLAXON_LOG("shutdown: SDL_Quit");
-    SDL_Quit();
+    // Chesto's teardown order (DrawUtils::CST_DrawExit), minus the parts that
+    // have hung on this stack.
+    KLAXON_LOG("shutdown: SDL video quit");
+    SDL_QuitSubSystem(SDL_INIT_VIDEO);
 
     // If SDL did not own ProcUI (Aroma), release it ourselves; harmless when
     // SDL already did (ProcUIIsRunning() is then false).
@@ -309,7 +309,13 @@ void App::shutdown() {
         ProcUIShutdown();
     }
 
-    KLAXON_LOG("shutdown: done");
+    KLAXON_LOG("shutdown: done - exiting process now");
+
+    // Leave immediately: the C runtime teardown and App's destructors have hung
+    // here before (a second TapePlayer::shutdown() taking a lock the abandoned
+    // decode thread still held), which keeps the process alive and the console
+    // on the transition screen.  The OS only needs the process gone.
+    _exit(0);
 }
 
 void* App::shutdownWatchdog(void*) {

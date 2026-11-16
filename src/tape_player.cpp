@@ -91,6 +91,8 @@ bool TapePlayer::init(bool openAudio) {
 }
 
 void TapePlayer::shutdown() {
+    if (shutDown_) return;   // second call (from the destructor) must not relock
+    shutDown_ = true;
     if (threadUp_) {
         OSLockMutex(&lock_);
         quitThread_ = true;
