@@ -182,22 +182,26 @@ void Hud::drawScore(int x, int y, int score) {
 
     // Digits (DSEG7).  Composed from ten pre-built digit textures so no
     // texture is ever created mid-run (that has been unreliable on hardware).
+    // Every glyph gets a fixed cell: a zero-width or missing glyph would
+    // otherwise collapse "10" into "0" (the flicker-to-zero seen on hardware).
     int scoreVal = score < 0 ? -score : score;
     char buf[8];
     snprintf(buf, sizeof(buf), "%s%02d", score < 0 ? "-" : "", scoreVal % 100);
 
-    int widths[4] = { 0, 0, 0, 0 };
-    int heights[4] = { 0, 0, 0, 0 };
-    SDL_Texture* glyphs[4] = { nullptr, nullptr, nullptr, nullptr };
+    const int kCellW = 36;      // fixed advance per character
+    const int kCellH = 52;
+    int widths[3] = { 0, 0, 0 };
+    int heights[3] = { 0, 0, 0 };
+    SDL_Texture* glyphs[3] = { nullptr, nullptr, nullptr };
     int n = 0;
-    for (const char* c = buf; *c && n < 4; c++, n++) {
+    for (const char* c = buf; *c && n < 3; c++, n++) {
         int gw = 0, gh = 0;
         std::string id = (c[0] == '-') ? std::string("digitsign")
                                        : (std::string("digit") + c[0]);
         char txt[2] = { *c, 0 };
         glyphs[n] = textTexture(id, txt, fDseg40_, palette::ledRed, &gw, &gh);
-        widths[n] = gw;
-        heights[n] = gh;
+        widths[n]  = (gw > 0) ? gw : kCellW;
+        heights[n] = (gh > 0) ? gh : kCellH;
     }
 
     int totalW = 0;

@@ -365,6 +365,7 @@ void App::startSelectedGameIntro(bool limited) {
     inputLock_ = 0.40f;
     KLAXON_LOG("intro: %s (limited=%d)", cfg.title.c_str(), (int)limited);
     KLAXON_LOG("game start: %s score reset to 0", cfg.title.c_str());
+    lastScoreLogged_ = 0;
 }
 
 void App::finishGame(bool outOfAmmo) {
@@ -816,6 +817,15 @@ void App::updateIntro(float) {
 void App::updatePlaying(float dt) {
     (void)dt;
     const InputManager::State& in = input_.state();
+
+    // Trace every score change: separates 'the counter really moved' from
+    // 'only the drawing flickered'.
+    const int sc = detector_.score();
+    if (sc != lastScoreLogged_) {
+        KLAXON_LOG("score: %d -> %d (good=%d bad=%d)", lastScoreLogged_, sc,
+                   detector_.shotsGood(), detector_.shotsBad());
+        lastScoreLogged_ = sc;
+    }
 
     if (triggerNow()) {
         playChunk(sndGunshot_);

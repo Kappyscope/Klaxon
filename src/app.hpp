@@ -155,6 +155,7 @@ private:
     bool inForeground_ = true;
     float inputLock_  = 0.0f;   // ignore the trigger just after a state change
     int   videoDbg_   = 0;      // decoded-frame log counter
+    int   lastScoreLogged_ = 0; // last score written to the log
     bool  videoStatic_ = true;  // wut: streaming textures upload "ok" but never show
     int   videoMode_   = 1;     // 0 = update, 1 = texture from surface, 2 = lock/unlock
     bool  useLogo_     = true;  // config logo=0 falls back to the text wordmark
