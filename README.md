@@ -1,5 +1,4 @@
-<img width="1895" height="830" alt="Futuristic Blue KLAXON Wordmark" src="https://github.com/user-attachments/assets/11ad8e30-9f19-4466-ad2b-41b7bb1bf964" />
-
+![Klaxon](https://raw.githubusercontent.com/Kappyscope/Klaxon/main/Untitled%20Design%20%283%29.png)
 Stupid VHS game emulator(-ish) for the Wii U homebrew environment, built with SDL2 and WUT + devkitPPC (Action Max only for now!! Will eventually hopefully expand into other VHS systems.)
 
 # KLAXON DOESN'T EMULATE ROMS!
