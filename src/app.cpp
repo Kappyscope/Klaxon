@@ -173,14 +173,16 @@ void App::warmTitleText() {
 }
 
 void App::preloadTextures() {
+    // Box arts only.  The five 1280x720 background stills are no longer drawn
+    // anywhere (the title uses a flat field), and keeping them resident cost
+    // ~18 MB of texture memory - enough to starve the video texture and, once
+    // the logo was added, to crash the console.  They are not loaded at all.
     for (size_t i = 0; i < registry_.games().size() && i < 5; i++) {
         const GameConfig& cfg = registry_.games()[i];
-        std::string bgPath  = ResolveAssetPath("assets/backgrounds/" + cfg.id + ".png");
         std::string artPath = ResolveAssetPath("assets/sprites/sprite_" + cfg.id + ".png");
-        texBg_[i]  = bgPath.empty()  ? nullptr : ResLoadTexture(renderer_, bgPath);
         texArt_[i] = artPath.empty() ? nullptr : ResLoadTexture(renderer_, artPath);
-        KLAXON_LOG("preload %-14s bg=%d art=%d", cfg.id.c_str(),
-                   texBg_[i] != nullptr, texArt_[i] != nullptr);
+        KLAXON_LOG("preload %-14s art=%d", cfg.id.c_str(),
+                   texArt_[i] != nullptr);
     }
 }
 
