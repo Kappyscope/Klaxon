@@ -361,16 +361,31 @@ void App::finishGame(bool outOfAmmo) {
 
 void App::ensureVideoTexture(int w, int h) {
     if (texVideo_ && texVideoW_ == w && texVideoH_ == h) return;
-    if (texVideo_) SDL_DestroyTexture(texVideo_);
+    if (texVideo_)  { SDL_DestroyTexture(texVideo_);  texVideo_ = nullptr; }
+    if (texVideo2_) { SDL_DestroyTexture(texVideo2_); texVideo2_ = nullptr; }
+
+    // This renderer only copes with textures up to 512 px wide: the 700 px
+    // logo crashed the console on the splash, while every smaller texture
+    // works.  Tiling is implemented but left OFF for video until the logo
+    // change is confirmed on hardware (one variable at a time).
+    tileCount_ = (w > 1024) ? 2 : 1;
+    tileW_     = (tileCount_ == 2) ? ((w + 1) / 2) : w;
+
     const SDL_TextureAccess access = videoStatic_ ? SDL_TEXTUREACCESS_STATIC
                                                   : SDL_TEXTUREACCESS_STREAMING;
     texVideo_ = SDL_CreateTexture(renderer_, SDL_PIXELFORMAT_RGBA32,
-                                  access, w, h);
+                                  access, tileW_, h);
+    if (texVideo_ && tileCount_ == 2) {
+        texVideo2_ = SDL_CreateTexture(renderer_, SDL_PIXELFORMAT_RGBA32,
+                                       access, w - tileW_, h);
+    }
     if (texVideo_) {
         SDL_SetTextureBlendMode(texVideo_, SDL_BLENDMODE_NONE);
+        if (texVideo2_) SDL_SetTextureBlendMode(texVideo2_, SDL_BLENDMODE_NONE);
         texVideoW_ = w;
         texVideoH_ = h;
-        KLAXON_LOG("video texture %dx%d (%s)", w, h,
+        KLAXON_LOG("video texture %dx%d in %d tile(s) of %d px (%s)",
+                   w, h, tileCount_, tileW_,
                    videoStatic_ ? "static" : "streaming");
     } else {
         KLAXON_LOG("video texture %dx%d FAILED: %s", w, h, SDL_GetError());
@@ -398,49 +413,49 @@ void App::aimToOverlay(int* ox, int* oy) const {
 
 void App::consumeTapeFrames() {
     while (tape_.pollFrame()) {
-        if (videoMode_ != 1) {
-            ensureVideoTexture(tape_.frame().width, tape_.frame().height);
-        }
+        ensureVideoTexture(tape_.frame().width, tape_.frame().height);
         if (texVideo_ && tape_.frame().rgba) {
             const int vw = tape_.frame().width;
             const int vh = tape_.frame().height;
             const uint8_t* src = tape_.frame().rgba;
-            int rc = -1;
+            int rc = 0;
 
-            if (videoMode_ == 1) {
-                // Rebuild the texture from a surface every frame.  Textures that
-                // come from SDL_ttf/PNG surfaces do display on wut, so this is
-                // the fallback when direct uploads are ignored.
-                SDL_Surface* s = SDL_CreateRGBSurfaceWithFormatFrom(
-                    (void*)src, vw, vh, 32, vw * 4, SDL_PIXELFORMAT_RGBA32);
-                if (s) {
-                    if (texVideo_) SDL_DestroyTexture(texVideo_);
-                    texVideo_ = SDL_CreateTextureFromSurface(renderer_, s);
+            for (int t = 0; t < tileCount_; t++) {
+                const int tw = (t == 0) ? tileW_ : (vw - tileW_);
+                const uint8_t* base = src + (size_t)t * tileW_ * 4;
+                SDL_Texture* tex = (t == 0) ? texVideo_ : texVideo2_;
+                if (!tex || tw <= 0) { rc = -1; continue; }
+
+                if (videoMode_ == 1) {
+                    // Rebuild from a surface: the path every working text/PNG
+                    // texture uses.  Pitch is the FULL frame width, so each
+                    // tile is a window into the same rows.
+                    SDL_Surface* s = SDL_CreateRGBSurfaceWithFormatFrom(
+                        (void*)base, tw, vh, 32, vw * 4, SDL_PIXELFORMAT_RGBA32);
+                    if (!s) { rc = -1; continue; }
+                    SDL_Texture* nt = SDL_CreateTextureFromSurface(renderer_, s);
                     SDL_FreeSurface(s);
-                    if (texVideo_) {
-                        SDL_SetTextureBlendMode(texVideo_, SDL_BLENDMODE_NONE);
-                        texVideoW_ = vw;
-                        texVideoH_ = vh;
-                        rc = 0;
-                    }
-                }
-            } else if (videoMode_ == 2) {
-                void* px = nullptr;
-                int pitch = 0;
-                if (SDL_LockTexture(texVideo_, nullptr, &px, &pitch) == 0) {
+                    if (!nt) { rc = -1; continue; }
+                    SDL_SetTextureBlendMode(nt, SDL_BLENDMODE_NONE);
+                    SDL_DestroyTexture(tex);
+                    if (t == 0) texVideo_ = nt; else texVideo2_ = nt;
+                } else if (videoMode_ == 2) {
+                    void* px = nullptr;
+                    int pitch = 0;
+                    if (SDL_LockTexture(tex, nullptr, &px, &pitch) != 0) { rc = -1; continue; }
                     for (int y = 0; y < vh; y++) {
                         SDL_memcpy((uint8_t*)px + (size_t)y * pitch,
-                                   src + (size_t)y * vw * 4, (size_t)vw * 4);
+                                   base + (size_t)y * vw * 4, (size_t)tw * 4);
                     }
-                    SDL_UnlockTexture(texVideo_);
-                    rc = 0;
+                    SDL_UnlockTexture(tex);
+                } else {
+                    SDL_Rect r = { 0, 0, tw, vh };
+                    if (SDL_UpdateTexture(tex, &r, base, vw * 4) != 0) rc = -1;
                 }
-            } else {
-                rc = SDL_UpdateTexture(texVideo_, nullptr, src, vw * 4);
             }
 
             if (rc != 0 && videoMode_ == 0) {
-                KLAXON_LOG("video: SDL_UpdateTexture failed (%s) - trying surface mode",
+                KLAXON_LOG("video: update failed (%s) - trying surface mode",
                            SDL_GetError());
                 videoMode_ = 1;
             }
@@ -803,7 +818,15 @@ void App::drawBackgroundStills(const GameConfig& cfg, int cx, int cy, int w, int
 
 void App::drawVideo(const SDL_Rect& vr) {
     if (!texVideo_) return;
-    SDL_RenderCopy(renderer_, texVideo_, nullptr, &vr);
+    if (tileCount_ <= 1 || !texVideo2_ || texVideoW_ <= 0) {
+        SDL_RenderCopy(renderer_, texVideo_, nullptr, &vr);
+        return;
+    }
+    const int dstW0 = vr.w * tileW_ / texVideoW_;
+    SDL_Rect a = { vr.x, vr.y, dstW0, vr.h };
+    SDL_Rect b = { vr.x + dstW0, vr.y, vr.w - dstW0, vr.h };
+    SDL_RenderCopy(renderer_, texVideo_, nullptr, &a);
+    SDL_RenderCopy(renderer_, texVideo2_, nullptr, &b);
 }
 
 // ---------------------------------------------------------------------------

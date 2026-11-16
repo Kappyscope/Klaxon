@@ -86,6 +86,9 @@ private:
     SDL_Window*   window_   = nullptr;
     SDL_Renderer* renderer_ = nullptr;
     SDL_Texture*  texVideo_ = nullptr;
+    SDL_Texture*  texVideo2_ = nullptr;   // second tile when the frame is >512 px wide
+    int tileW_ = 0;                       // width of tile 0
+    int tileCount_ = 1;
     int texVideoW_ = 0, texVideoH_ = 0;
 
     Hud         hud_;
