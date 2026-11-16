@@ -5,7 +5,6 @@
 #include <cstdlib>
 
 #include <SDL_image.h>
-#include <SDL_mixer.h>
 #include <SDL_ttf.h>
 
 #include "common.hpp"
@@ -19,12 +18,8 @@ static const int SCREEN_H = 720;
 static const float GAME_OVER_SECONDS = 8.0f;
 
 // The Singe title jingle: "Action Max" sting, then "A Steady Aim is Critical".
-static App* g_appForAudio = nullptr;
-
-static void SDLCALL channelFinishedCb(int channel) {
-    if (!g_appForAudio) return;
-    g_appForAudio->onChannelFinished(channel);
-}
+// Chaining happens in update() by polling the mixer's finish flag (there is no
+// SDL_mixer callback any more).
 
 // ---------------------------------------------------------------------------
 // Init
@@ -72,20 +67,29 @@ void App::stageSounds() {
 void App::decodeSounds() {
     const uint32_t devRate = tape_.audioDeviceRate();
     KLAXON_LOG("decodeSounds: begin (device %u Hz)", devRate);
-    sndGunshot_   = ResDecodeWav(sndStage_[0], devRate);
-    sndGoodHit_   = ResDecodeWav(sndStage_[1], devRate);
-    sndBadHit_    = ResDecodeWav(sndStage_[2], devRate);
-    sndGameOver_  = ResDecodeWav(sndStage_[3], devRate);
-    sndGetReady_  = ResDecodeWav(sndStage_[4], devRate);
-    sndActionMax_ = ResDecodeWav(sndStage_[5], devRate);
-    sndSteadyAim_ = ResDecodeWav(sndStage_[6], devRate);
-    sndSplash_    = ResDecodeWav(sndStage_[7], devRate);
-    KLAXON_LOG("decodeSounds: done");
-    KLAXON_LOG("sounds decoded: gun=%d good=%d bad=%d over=%d ready=%d jingle=%d splash=%d",
-               sndGunshot_ != nullptr, sndGoodHit_ != nullptr,
-               sndBadHit_ != nullptr, sndGameOver_ != nullptr,
-               sndGetReady_ != nullptr, sndActionMax_ != nullptr,
-               sndSplash_ != nullptr);
+
+    sndClips_.clear();
+    int* ids[8] = { &sndGunshot_, &sndGoodHit_, &sndBadHit_, &sndGameOver_,
+                    &sndGetReady_, &sndActionMax_, &sndSteadyAim_, &sndSplash_ };
+
+    for (int i = 0; i < 8; i++) {
+        *ids[i] = -1;
+        if (sndStage_[i] < 0) continue;
+        std::unique_ptr<SfxClip> clip(new SfxClip());
+        if (!ResDecodeWav(sndStage_[i], devRate, clip.get())) continue;
+        const int id = tape_.addSfx(clip->pcm.data(), clip->frames);
+        if (id < 0) continue;
+        *ids[i] = id;
+        sndClips_.push_back(std::move(clip));   // mixer holds a raw pointer
+    }
+
+    KLAXON_LOG("sounds ready: gun=%d good=%d bad=%d over=%d ready=%d "
+               "jingle=%d steady=%d splash=%d",
+               sndGunshot_, sndGoodHit_, sndBadHit_, sndGameOver_,
+               sndGetReady_, sndActionMax_, sndSteadyAim_, sndSplash_);
+
+    // Audio starts LAST: from here on nothing may read files or allocate.
+    tape_.startAudio();
 }
 
 void App::preloadTextures() {
@@ -155,13 +159,9 @@ bool App::init() {
 
     // Audio device + decode thread LAST, after every file read is done.
     tape_.init();
-    Mix_AllocateChannels(8);
 
-    // Title jingle chaining (Singe behaviour).
-    g_appForAudio = this;
-    Mix_ChannelFinished(&channelFinishedCb);
-
-    // Decode the staged WAVs now that the device exists.
+    // Decode the staged WAVs into PCM now that the device exists (pure memory
+    // work), then unpause audio.
     decodeSounds();
 
     state_ = (registry_.readyCount() > 0 && registry_.commonReady)
@@ -170,8 +170,8 @@ bool App::init() {
 
     // User-provided boot jingle: plays under the KLAXON splash and into the
     // title screen; the original Singe title sting stays silent when it did.
-    if (state_ == AppState::SPLASH && sndSplash_) {
-        Mix_PlayChannel(-1, sndSplash_, 0);
+    if (state_ == AppState::SPLASH && sndSplash_ >= 0) {
+        tape_.playSfx(sndSplash_);
         splashJinglePlayed_ = true;
         titleJingleDone_ = true;
         KLAXON_LOG("splash jingle playing");
@@ -187,19 +187,9 @@ void App::shutdown() {
 
     KLAXON_LOG("shutdown: begin");
 
-    tape_.shutdown();   // unhooks Mix_HookMusic, joins decode thread
+    tape_.shutdown();   // joins the decode thread, pauses the audio device
 
-    if (sndGunshot_)   { Mix_FreeChunk(sndGunshot_);   sndGunshot_ = nullptr; }
-    if (sndGoodHit_)   { Mix_FreeChunk(sndGoodHit_);   sndGoodHit_ = nullptr; }
-    if (sndBadHit_)    { Mix_FreeChunk(sndBadHit_);    sndBadHit_ = nullptr; }
-    if (sndGameOver_)  { Mix_FreeChunk(sndGameOver_);  sndGameOver_ = nullptr; }
-    if (sndGetReady_)  { Mix_FreeChunk(sndGetReady_);  sndGetReady_ = nullptr; }
-    if (sndActionMax_) { Mix_FreeChunk(sndActionMax_); sndActionMax_ = nullptr; }
-    if (sndSteadyAim_) { Mix_FreeChunk(sndSteadyAim_); sndSteadyAim_ = nullptr; }
-    if (sndSplash_)    { Mix_FreeChunk(sndSplash_);    sndSplash_ = nullptr; }
-
-    Mix_ChannelFinished(nullptr);
-    g_appForAudio = nullptr;
+    sndClips_.clear();
 
     for (int i = 0; i < 5; i++) {
         if (texBg_[i])  { SDL_DestroyTexture(texBg_[i]);  texBg_[i] = nullptr; }
@@ -238,16 +228,11 @@ void App::enterTitle() {
     KLAXON_LOG("-> TITLE");
 
     // Title jingle once per title visit (Singe: on stateSetup).
-    if (!titleJingleDone_ && sndActionMax_) {
-        actionMaxChannel_ = Mix_PlayChannel(-1, sndActionMax_, 0);
+    if (!titleJingleDone_ && sndActionMax_ >= 0) {
+        tape_.playSfx(sndActionMax_);
+        actionMaxId_ = sndActionMax_;
+        actionMaxPlaying_ = true;
         titleJingleDone_ = true;
-    }
-}
-
-void App::onChannelFinished(int channel) {
-    if (channel == actionMaxChannel_ && sndSteadyAim_) {
-        Mix_PlayChannel(-1, sndSteadyAim_, 0);
-        actionMaxChannel_ = -1;
     }
 }
 
@@ -269,7 +254,7 @@ void App::startSelectedGameIntro(bool limited) {
     lastShots_ = lastGood_ = lastBad_ = 0;
 
     tape_.startIntro(registry_.introMediaPath, cfg.lengthIntro);
-    if (sndGetReady_) Mix_PlayChannel(-1, sndGetReady_, 0);
+    if (sndGetReady_ >= 0) tape_.playSfx(sndGetReady_);
     state_ = AppState::INTRO;
     stateTime_ = 0.0f;
     KLAXON_LOG("intro: %s (limited=%d)", cfg.title.c_str(), (int)limited);
@@ -285,7 +270,7 @@ void App::finishGame(bool outOfAmmo) {
                cfg.title.c_str(), lastShots_, lastGood_, lastBad_,
                (int)outOfAmmo);
 
-    if (outOfAmmo && sndGameOver_) Mix_PlayChannel(-1, sndGameOver_, 0);
+    if (outOfAmmo && sndGameOver_ >= 0) tape_.playSfx(sndGameOver_);
 
     if (!registry_.menuMediaPath.empty()) {
         tape_.startMenuLoop(registry_.menuMediaPath);
@@ -344,10 +329,10 @@ void App::consumeTapeFrames() {
                                                &tape_, ox, oy);
             if (d == SHOT_GOOD) {
                 hitLightTimer_ = 0.5f;
-                if (sndGoodHit_) Mix_PlayChannel(-1, sndGoodHit_, 0);
+                if (sndGoodHit_ >= 0) tape_.playSfx(sndGoodHit_);
                 if (limitedMode_) ammoLeft_++;  // refund (net zero)
             } else if (d == SHOT_BAD) {
-                if (sndBadHit_) Mix_PlayChannel(-1, sndBadHit_, 0);
+                if (sndBadHit_ >= 0) tape_.playSfx(sndBadHit_);
             }
         }
     }
@@ -428,9 +413,11 @@ void App::run() {
         render();
         frameCount_++;
         if (frameCount_ % 300 == 0) {
-            KLAXON_LOG("alive: frame %d state=%d underruns=%u dropped=%u",
+            KLAXON_LOG("alive: frame %d state=%d underruns=%u dropped=%u "
+                       "audioPeriods=%u voices=%d",
                        frameCount_, (int)state_,
-                       tape_.audioUnderruns(), tape_.framesDropped());
+                       tape_.audioUnderruns(), tape_.framesDropped(),
+                       tape_.audioPeriods(), tape_.activeVoices());
         }
     }
 
@@ -444,6 +431,15 @@ void App::run() {
 
 void App::update(float dt) {
     stateTime_ += dt;
+
+    // Title jingle chain: "Action Max" -> "A Steady Aim is Critical".
+    // (No SDL_mixer callback: the mixer sets a flag the last time it plays
+    // the clip, and we poll it here.)
+    if (actionMaxPlaying_ && tape_.sfxFinished(actionMaxId_)) {
+        if (sndSteadyAim_ >= 0) tape_.playSfx(sndSteadyAim_);
+        actionMaxPlaying_ = false;
+    }
+
     if (hitLightTimer_ > 0.0f) {
         hitLightTimer_ -= dt;
         if (hitLightTimer_ < 0.0f) hitLightTimer_ = 0.0f;
@@ -553,8 +549,8 @@ void App::updateGameOver(float) {
     }
 }
 
-void App::playChunk(Mix_Chunk* chunk) {
-    if (chunk) Mix_PlayChannel(-1, chunk, 0);
+void App::playChunk(int id) {
+    tape_.playSfx(id);
 }
 
 // ---------------------------------------------------------------------------

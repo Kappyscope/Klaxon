@@ -1,15 +1,21 @@
 // tape_player.hpp — plays the Action Max "tape": intro segment, gameplay
-// segment, menu segment — one muxed MPEG-1 System file each (pl_mpeg).
+// segment, menu segment — one muxed MPEG-1 System file each (pl_mpeg), and
+// owns the audio device (tape PCM + one-shot SFX mixed in one callback).
 //
 // Design:
 //   * A dedicated decode thread runs on CPU2 (the OS cores are 0/1; SDL's
 //     main loop lives on 1).  It drives pl_mpeg and feeds two consumers:
-//       - AUDIO: pl_mpeg audio callback -> S16 ring buffer; SDL_mixer's
-//         Mix_HookMusic drains the ring on the audio device thread.  The
-//         audio device IS the master clock (the same way the VHS head was).
+//       - AUDIO: pl_mpeg audio callback -> S16 ring buffer, drained by our
+//         own SDL audio callback.  The device IS the master clock.
 //       - VIDEO: pl_mpeg video callback -> latest-wins RGBA frame slots.
 //         The main thread polls the newest frame; slower rendering simply
 //         drops old frames, never blocks the decoder.
+//   * NO SDL_mixer.  Every SDL_mixer entry point (Mix_LoadWAV, Mix_QuickLoad
+//     RAW, Mix_PlayChannel) takes the audio-device lock, and on this port a
+//     take of that lock after the callback thread is live deadlocks: the
+//     main thread stops with no log line.  SFX are decoded to plain S16 PCM
+//     at boot and triggered through a lock-free queue that the audio
+//     callback drains.
 //   * Segment timeline mirrors the Singe scripts: the intro segment is cut
 //     at `lengthIntro` authored frames even if the file carries a few more,
 //     gameplay runs for exactly `lengthGame` frames, the menu loops.
@@ -25,6 +31,8 @@
 #include <coreinit/thread.h>
 
 #include <atomic>
+
+#include <SDL.h>
 
 #include "hit_detector.hpp"
 
@@ -46,7 +54,8 @@ public:
     TapePlayer();
     ~TapePlayer();
 
-    // Opens the mixer (48 kHz S16 stereo) + Mix_HookMusic + decode thread.
+    // Opens the audio device (paused) + decode thread.  Nothing is audible
+    // until startAudio().
     bool init();
     void shutdown();
 
@@ -79,11 +88,28 @@ public:
     static void pixelProbe(void* user, int overlayX, int overlayY,
                            int* r, int* g, int* b);
 
+    // --- audio engine (own mixer; SDL_mixer is deliberately absent) --------
+    // Registers an S16 stereo PCM clip at the device rate.  The caller keeps
+    // the samples alive for the app's lifetime; returns an SFX id or -1.
+    int  addSfx(const int16_t* pcm, uint32_t frames);
+
+    // Fires a one-shot from the main thread (lock-free, never blocks).
+    void playSfx(int id);
+
+    // True exactly once, after the last callback that finished this clip.
+    bool sfxFinished(int id);
+
+    // Unpauses the device.  Called once everything else is staged, so no
+    // file I/O or allocation can ever happen once audio is running.
+    void startAudio();
+
     // Diagnostics.
     uint32_t audioUnderruns() const;
     uint32_t framesDropped()  const;
     float    decodeMsPerFrame() const;
     uint32_t audioDeviceRate() const { return deviceRate_; }
+    uint32_t audioPeriods()   const { return periods_.load(std::memory_order_relaxed); }
+    int      activeVoices()   const { return voicesActive_.load(std::memory_order_relaxed); }
 
 private:
     // --- decode-thread side ------------------------------------------------
@@ -101,15 +127,31 @@ private:
         bool filled = false;
     };
 
+    struct Voice {
+        const int16_t* pcm = nullptr;
+        uint32_t frames = 0;
+        uint32_t pos = 0;
+        int  id = -1;
+        bool active = false;
+    };
+
+    static const int kMaxVoices = 8;
+    static const int kMaxSfx    = 16;
+    static const int kTrigCap   = 32;   // power of two
+
     static void videoCb(plm_t* plm, plm_frame_t* frame, void* user);
     static void audioCb(plm_t* plm, plm_samples_t* samples, void* user);
-    static void mixerHook(void* udata, uint8_t* stream, int len);
+    static void SDLCALL deviceCb(void* user, uint8_t* stream, int len);
     static int  threadEntry(int argc, const char** argv);
 
     void decodeLoop();
     bool openSegmentLocked();          // lock_ held; uses pending cmd
     void closeSegmentLocked();
     void pushAudio(const float* interleaved, int frames);
+
+    // --- audio-thread side (NO locks, NO allocation, NO file I/O) ----------
+    void mixInto(uint8_t* stream, int len);
+    void startVoice(int id);
 
     // --- state (guarded by lock_ unless noted) -----------------------------
     OSMutex  lock_{};
@@ -154,6 +196,19 @@ private:
     uint32_t deviceRate_ = 48000;
     uint32_t streamRate_ = 48000;
     double   resamplePos_ = 0.0;
+
+    // --- audio device + own mixer -----------------------------------------
+    SDL_AudioDeviceID devId_ = 0;
+    const int16_t* sfxPcm_[kMaxSfx] = {};
+    uint32_t       sfxFrames_[kMaxSfx] = {};
+    int            sfxCount_ = 0;
+    Voice          voices_[kMaxVoices];
+    std::atomic<uint32_t> trigWr_{0};     // main thread -> audio thread
+    std::atomic<uint32_t> trigRd_{0};
+    int                   trig_[kTrigCap] = {};
+    std::atomic<uint32_t> doneMask_{0};   // bit per sfx id, set by callback
+    std::atomic<uint32_t> periods_{0};
+    std::atomic<int>      voicesActive_{0};
 
     // decode stats
     float decodeMs_ = 0.0f;

@@ -11,13 +11,16 @@
 //   tape under the results.  Hold "-" on the Wii Remote to quit cleanly.
 #pragma once
 
+#include <memory>
+#include <vector>
+
 #include <SDL.h>
-#include <SDL_mixer.h>
 
 #include "game_registry.hpp"
 #include "hit_detector.hpp"
 #include "hud.hpp"
 #include "input.hpp"
+#include "res_loader.hpp"
 #include "tape_player.hpp"
 
 enum class AppState {
@@ -36,9 +39,6 @@ public:
     bool init();
     void run();
     void shutdown();
-
-    // Title jingle chaining (called from the SDL_mixer channel-finished hook).
-    void onChannelFinished(int channel);
 
 private:
     // ---- flow ----
@@ -72,7 +72,7 @@ private:
     // ---- helpers ----
     void videoRect(SDL_Rect* out) const;
     void aimToOverlay(int* ox, int* oy) const;
-    void playChunk(Mix_Chunk* chunk);
+    void playChunk(int id);
     void stageSounds();
     void decodeSounds();
     void preloadTextures();
@@ -102,21 +102,24 @@ private:
 
     HitDetector detector_;
 
-    // SFX (Singe asset set)
-    Mix_Chunk* sndGunshot_  = nullptr;
-    Mix_Chunk* sndGoodHit_  = nullptr;
-    Mix_Chunk* sndBadHit_   = nullptr;
-    Mix_Chunk* sndGameOver_ = nullptr;
-    Mix_Chunk* sndGetReady_ = nullptr;
-    Mix_Chunk* sndActionMax_ = nullptr;
-    Mix_Chunk* sndSteadyAim_ = nullptr;
-    Mix_Chunk* sndSplash_    = nullptr;   // user-provided boot jingle (SPLASH)
-    int        sndStage_[8]  = {};          // staged file reads (pre-audio)
+    // SFX (Singe asset set) — ids into TapePlayer's own mixer, -1 = absent.
+    int sndGunshot_  = -1;
+    int sndGoodHit_  = -1;
+    int sndBadHit_   = -1;
+    int sndGameOver_ = -1;
+    int sndGetReady_ = -1;
+    int sndActionMax_ = -1;
+    int sndSteadyAim_ = -1;
+    int sndSplash_    = -1;   // user-provided boot jingle (SPLASH)
+    int sndStage_[8]  = {};     // staged file reads (pre-audio)
+    // PCM backing store: the mixer holds raw pointers, so these must outlive it.
+    std::vector<std::unique_ptr<SfxClip>> sndClips_;
 
     // Preloaded textures (read at boot, zero file I/O during the run loop)
     SDL_Texture* texBg_[5]  = {};   // title background stills
     SDL_Texture* texArt_[5] = {};   // box arts
-    int    actionMaxChannel_ = -1;
+    int    actionMaxId_ = -1;   // the clip whose end chains "A Steady Aim..."
+    bool   actionMaxPlaying_ = false;
     float  hitLightTimer_ = 0.0f;
     bool   titleJingleDone_ = false;
     bool   splashJinglePlayed_ = false;

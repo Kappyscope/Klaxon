@@ -9,7 +9,6 @@
 #include "pl_mpeg.h"
 
 #include <SDL.h>
-#include <SDL_mixer.h>
 #include <coreinit/time.h>
 
 #include "common.hpp"
@@ -35,19 +34,28 @@ bool TapePlayer::init() {
     ringWr_.store(0);
     ringCount_.store(0);
 
-    // Audio device: our prep pipeline pins every stream to 48 kHz MP2, so
-    // this matches without resampling.  Failure is non-fatal (silent mode).
-    if (Mix_OpenAudioDevice((int)deviceRate_, AUDIO_S16SYS, 2, 1024,
-                            nullptr, 0) == 0) {
+    // Audio device: plain SDL, our own callback, our own mixer.  SDL_mixer is
+    // gone on purpose — see the header.  The device opens PAUSED: the audio
+    // thread must not start until every asset and SFX buffer exists.
+    SDL_AudioSpec want;
+    SDL_zero(want);
+    want.freq     = (int)deviceRate_;
+    want.format   = AUDIO_S16SYS;
+    want.channels = 2;
+    want.samples  = 1024;
+    want.callback = &TapePlayer::deviceCb;
+    want.userdata = this;
+    SDL_AudioSpec have;
+    SDL_zero(have);
+    devId_ = SDL_OpenAudioDevice(nullptr, 0, &want, &have, 0);
+    if (devId_ != 0) {
         audioOpen_ = true;
-        int freq = 0;
-        Mix_QuerySpec(&freq, nullptr, nullptr);
-        if (freq > 0) deviceRate_ = (uint32_t)freq;
-        Mix_HookMusic(&TapePlayer::mixerHook, this);
-        KLAXON_LOG("audio device open: %u Hz S16 stereo", deviceRate_);
+        if (have.freq > 0) deviceRate_ = (uint32_t)have.freq;
+        KLAXON_LOG("audio device open: %u Hz S16 stereo (paused until startAudio)",
+                   deviceRate_);
     } else {
-        KLAXON_LOG("Mix_OpenAudioDevice FAILED (%s) - running silent",
-                   Mix_GetError());
+        KLAXON_LOG("SDL_OpenAudioDevice FAILED (%s) - running silent",
+                   SDL_GetError());
     }
 
     // Decode thread on CPU2 (CPU0/1 belong to the OS and SDL's main loop).
@@ -87,17 +95,25 @@ void TapePlayer::shutdown() {
         stack_ = nullptr;
     }
 
-    if (audioOpen_) {
-        Mix_HookMusic(nullptr, nullptr);
-        Mix_CloseAudio();
+    const bool hadAudio = audioOpen_;
+    if (hadAudio) {
+        // Deliberately NOT SDL_CloseAudioDevice: closing takes the same device
+        // lock that has deadlocked every SDL_mixer call on this stack.  Pause
+        // instead and let process exit reclaim the device.  The ring buffer is
+        // left allocated for the same reason - a paused driver must never be
+        // able to read freed memory.
+        SDL_PauseAudioDevice(devId_, 1);
         audioOpen_ = false;
+        KLAXON_LOG("audio: device paused (not closed - device lock unsafe here)");
     }
 
     OSLockMutex(&lock_);
     closeSegmentLocked();
     OSUnlockMutex(&lock_);
-    ring_.reset();
-    ringCap_ = 0;
+    if (!hadAudio) {
+        ring_.reset();
+        ringCap_ = 0;
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -460,26 +476,129 @@ void TapePlayer::pushAudio(const float* interleaved, int frames) {
     resamplePos_ = pos - (double)frames;  // carry into the next callback
 }
 
-void TapePlayer::mixerHook(void* udata, uint8_t* stream, int len) {
-    // Runs in SDL's audio context on real hardware: NO locks, NO blocking.
-    // Lock-free SPSC consumer against pushAudio (the decode thread).
-    TapePlayer* self = (TapePlayer*)udata;
-    const int pairs = len / 4;  // S16 stereo
+// ---------------------------------------------------------------------------
+// Audio: own mixer, no SDL_mixer
+// ---------------------------------------------------------------------------
 
-    uint32_t count = self->ringCount_.load(std::memory_order_acquire);
-    uint32_t rd = self->ringRd_.load(std::memory_order_relaxed);
-    const int n = (pairs < (int)count) ? pairs : (int)count;
+int TapePlayer::addSfx(const int16_t* pcm, uint32_t frames) {
+    if (!pcm || frames == 0) return -1;
+    if (sfxCount_ >= kMaxSfx) {
+        KLAXON_LOG("audio: sfx table full, dropping clip");
+        return -1;
+    }
+    const int id = sfxCount_++;
+    sfxPcm_[id]    = pcm;
+    sfxFrames_[id] = frames;
+    return id;
+}
+
+void TapePlayer::playSfx(int id) {
+    if (id < 0 || id >= sfxCount_) return;
+    if (!audioOpen_) return;
+    const uint32_t wr = trigWr_.load(std::memory_order_relaxed);
+    const uint32_t rd = trigRd_.load(std::memory_order_acquire);
+    if (wr - rd >= (uint32_t)kTrigCap) return;   // queue full: drop, never block
+    trig_[wr & (uint32_t)(kTrigCap - 1)] = id;
+    trigWr_.store(wr + 1, std::memory_order_release);
+}
+
+bool TapePlayer::sfxFinished(int id) {
+    if (id < 0 || id >= 32) return false;
+    const uint32_t bit = 1u << id;
+    if (!(doneMask_.load(std::memory_order_acquire) & bit)) return false;
+    doneMask_.fetch_and(~bit, std::memory_order_acq_rel);
+    return true;
+}
+
+void TapePlayer::startAudio() {
+    if (devId_ == 0) return;
+    SDL_PauseAudioDevice(devId_, 0);
+    KLAXON_LOG("audio: device running (own mixer, no SDL_mixer)");
+}
+
+void TapePlayer::startVoice(int id) {
+    if (id < 0 || id >= sfxCount_) return;
+    const int16_t* pcm = sfxPcm_[id];
+    const uint32_t n   = sfxFrames_[id];
+    if (!pcm || n == 0) return;
+
+    int slot = -1;
+    for (int i = 0; i < kMaxVoices; i++) {
+        if (!voices_[i].active) { slot = i; break; }
+    }
+    if (slot < 0) slot = 0;              // steal the first voice
+
+    Voice& v = voices_[slot];
+    const bool wasActive = v.active;
+    v.pcm    = pcm;
+    v.frames = n;
+    v.pos    = 0;
+    v.id     = id;
+    v.active = true;
+    if (!wasActive) voicesActive_.fetch_add(1, std::memory_order_relaxed);
+}
+
+void TapePlayer::deviceCb(void* user, uint8_t* stream, int len) {
+    ((TapePlayer*)user)->mixInto(stream, len);
+}
+
+void TapePlayer::mixInto(uint8_t* stream, int len) {
+    // Runs in SDL's audio context: NO locks, NO allocation, NO file I/O.
+    periods_.fetch_add(1, std::memory_order_relaxed);
 
     int16_t* out = (int16_t*)stream;
-    for (int i = 0; i < n; i++) {
-        out[i * 2 + 0] = self->ring_[rd * 2 + 0];
-        out[i * 2 + 1] = self->ring_[rd * 2 + 1];
-        rd = (rd + 1) % self->ringCap_;
+    const int frames = len / 4;         // S16 stereo
+
+    // 1) tape ring -> output (lock-free SPSC drain)
+    uint32_t count = ringCount_.load(std::memory_order_acquire);
+    uint32_t rd    = ringRd_.load(std::memory_order_relaxed);
+    const int n = (frames < (int)count) ? frames : (int)count;
+    const int16_t* ring = ring_.get();
+    const uint32_t cap = (uint32_t)ringCap_;
+
+    if (ring && cap > 0) {
+        for (int i = 0; i < n; i++) {
+            out[i * 2 + 0] = ring[rd * 2 + 0];
+            out[i * 2 + 1] = ring[rd * 2 + 1];
+            rd = (rd + 1 == cap) ? 0 : rd + 1;
+        }
+        if (n > 0) {
+            ringRd_.store(rd, std::memory_order_release);
+            ringCount_.fetch_sub((uint32_t)n, std::memory_order_acq_rel);
+        }
     }
-    if (n > 0) {
-        self->ringRd_.store(rd, std::memory_order_release);
-        self->ringCount_.fetch_sub((uint32_t)n, std::memory_order_acq_rel);
+    for (int i = n * 2; i < frames * 2; i++) out[i] = 0;
+    if (n < frames) underruns_.fetch_add(1, std::memory_order_relaxed);
+
+    // 2) start queued one-shots
+    uint32_t tw = trigWr_.load(std::memory_order_acquire);
+    uint32_t tr = trigRd_.load(std::memory_order_relaxed);
+    while (tr != tw) {
+        startVoice(trig_[tr & (uint32_t)(kTrigCap - 1)]);
+        tr++;
     }
-    for (int i = n * 2; i < pairs * 2; i++) out[i] = 0;
-    if (n < pairs) self->underruns_++;
+    trigRd_.store(tr, std::memory_order_release);
+
+    // 3) mix active voices over the tape audio (saturating add)
+    for (int vi = 0; vi < kMaxVoices; vi++) {
+        Voice& v = voices_[vi];
+        if (!v.active) continue;
+        int i = 0;
+        for (; i < frames && v.pos < v.frames; i++, v.pos++) {
+            int32_t l = (int32_t)out[i * 2 + 0] + (int32_t)v.pcm[v.pos * 2 + 0];
+            int32_t r = (int32_t)out[i * 2 + 1] + (int32_t)v.pcm[v.pos * 2 + 1];
+            out[i * 2 + 0] = (int16_t)(l > 32767 ? 32767 : (l < -32768 ? -32768 : l));
+            out[i * 2 + 1] = (int16_t)(r > 32767 ? 32767 : (r < -32768 ? -32768 : r));
+        }
+        if (v.pos >= v.frames) {
+            if (v.id >= 0 && v.id < 32) {
+                doneMask_.fetch_or(1u << v.id, std::memory_order_release);
+            }
+            v.active = false;
+            v.id     = -1;
+            v.pcm    = nullptr;
+            voicesActive_.fetch_sub(1, std::memory_order_relaxed);
+        }
+    }
 }
+

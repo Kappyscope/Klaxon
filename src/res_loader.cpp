@@ -5,7 +5,6 @@
 
 #include <SDL.h>
 #include <SDL_image.h>
-#include <SDL_mixer.h>
 #include <SDL_ttf.h>
 
 #include "common.hpp"
@@ -102,24 +101,6 @@ SDL_Texture* ResLoadTexture(SDL_Renderer* renderer, const std::string& path) {
     return tex;
 }
 
-Mix_Chunk* ResLoadWav(const std::string& path) {
-    std::vector<uint8_t> buf;
-    if (!ReadWholeFile(path, buf)) {
-        KLAXON_LOG("res: wav read FAILED: %s", path.c_str());
-        return nullptr;
-    }
-    SDL_RWops* rw = SDL_RWFromMem(buf.data(), (int)buf.size());
-    if (!rw) return nullptr;
-    // WAV decoding completes inside this call.
-    Mix_Chunk* chunk = Mix_LoadWAV_RW(rw, 0);
-    SDL_RWclose(rw);
-    if (!chunk) {
-        KLAXON_LOG("res: Mix_LoadWAV_RW(%s) FAILED: %s", path.c_str(),
-                   Mix_GetError());
-    }
-    return chunk;
-}
-
 // ---------------------------------------------------------------------------
 // Staged WAVs: file read at boot (pre-audio), decode after the device opens.
 // ---------------------------------------------------------------------------
@@ -131,7 +112,6 @@ struct StagedWav {
 };
 
 std::vector<StagedWav> g_staged;
-std::vector<std::vector<uint8_t>*> g_keepAlive;   // buffers referenced by QuickLoad chunks
 
 int ResStageWav(const std::string& path) {
     StagedWav s;
@@ -147,112 +127,116 @@ int ResStageWav(const std::string& path) {
     return (int)g_staged.size() - 1;
 }
 
-Mix_Chunk* ResDecodeWav(int stagedId, uint32_t deviceRate) {
-    if (stagedId < 0 || stagedId >= (int)g_staged.size()) return nullptr;
+// RIFF -> interleaved S16 stereo at the device rate.  Pure memory work: no
+// SDL_mixer, no device lock, no allocation outside the output vector.
+bool ResDecodeWav(int stagedId, uint32_t deviceRate, SfxClip* out) {
+    if (!out) return false;
+    out->pcm.clear();
+    out->frames = 0;
+    if (stagedId < 0 || stagedId >= (int)g_staged.size()) return false;
     StagedWav& s = g_staged[stagedId];
-    if (!s.valid || !s.buf) return nullptr;
+    if (!s.valid || !s.buf) return false;
 
     KLAXON_LOG("res: decoding staged wav %s (%zu bytes)", s.path.c_str(),
                s.buf->size());
 
-    // No SDL_mixer decode ever: its conversion path wedges on hardware.
-    // Parse the RIFF, then either QuickLoad the raw data (rate == device)
-    // or linear-resample to the device rate in memory first.
     std::vector<uint8_t>& b = *s.buf;
-    if (b.size() > 44 && b[0] == 'R' && b[1] == 'I' && b[2] == 'F' && b[3] == 'F'
-        && b[8] == 'W' && b[9] == 'A' && b[10] == 'V' && b[11] == 'E') {
-        size_t off = 12;
-        uint32_t fmtRate = 0, fmtBits = 0, fmtChannels = 0;
-        uint8_t* data = nullptr;
-        uint32_t dataLen = 0;
-        bool haveFmt = false, haveData = false;
-        while (off + 8 <= b.size()) {
-            uint32_t ckId   = (uint32_t)b[off] | ((uint32_t)b[off+1] << 8) |
-                              ((uint32_t)b[off+2] << 16) | ((uint32_t)b[off+3] << 24);
-            uint32_t ckSize = (uint32_t)b[off+4] | ((uint32_t)b[off+5] << 8) |
-                              ((uint32_t)b[off+6] << 16) | ((uint32_t)b[off+7] << 24);
-            if (ckId == 0x20746D66) {   // 'fmt '
-                fmtChannels = (uint32_t)b[off+10] | ((uint32_t)b[off+11] << 8);
-                fmtRate     = (uint32_t)b[off+12] | ((uint32_t)b[off+13] << 8) |
-                              ((uint32_t)b[off+14] << 16) | ((uint32_t)b[off+15] << 24);
-                fmtBits     = (uint32_t)b[off+22] | ((uint32_t)b[off+23] << 8);
-                haveFmt = true;
-            } else if (ckId == 0x61746164) {  // 'data'
-                data = b.data() + off + 8;
-                dataLen = (off + 8 + ckSize <= b.size()) ? ckSize
-                                                         : (uint32_t)(b.size() - off - 8);
-                haveData = true;
-            }
-            off += 8 + ckSize + (ckSize & 1);
+    if (b.size() <= 44 || b[0] != 'R' || b[1] != 'I' || b[2] != 'F' || b[3] != 'F'
+        || b[8] != 'W' || b[9] != 'A' || b[10] != 'V' || b[11] != 'E') {
+        KLAXON_LOG("res: not a RIFF/WAVE file: %s", s.path.c_str());
+        return false;
+    }
+
+    size_t off = 12;
+    uint32_t fmtRate = 0, fmtBits = 0, fmtChannels = 0;
+    const uint8_t* data = nullptr;
+    uint32_t dataLen = 0;
+    bool haveFmt = false, haveData = false;
+
+    while (off + 8 <= b.size()) {
+        uint32_t ckId   = (uint32_t)b[off] | ((uint32_t)b[off+1] << 8) |
+                          ((uint32_t)b[off+2] << 16) | ((uint32_t)b[off+3] << 24);
+        uint32_t ckSize = (uint32_t)b[off+4] | ((uint32_t)b[off+5] << 8) |
+                          ((uint32_t)b[off+6] << 16) | ((uint32_t)b[off+7] << 24);
+        if (ckId == 0x20746D66) {   // 'fmt '
+            fmtChannels = (uint32_t)b[off+10] | ((uint32_t)b[off+11] << 8);
+            fmtRate     = (uint32_t)b[off+12] | ((uint32_t)b[off+13] << 8) |
+                          ((uint32_t)b[off+14] << 16) | ((uint32_t)b[off+15] << 24);
+            fmtBits     = (uint32_t)b[off+22] | ((uint32_t)b[off+23] << 8);
+            haveFmt = true;
+        } else if (ckId == 0x61746164) {  // 'data'
+            data = b.data() + off + 8;
+            dataLen = (off + 8 + ckSize <= b.size()) ? ckSize
+                                                     : (uint32_t)(b.size() - off - 8);
+            haveData = true;
         }
-        if (haveFmt && haveData && fmtBits == 16 && fmtChannels == 2) {
-            uint8_t* outData = data;
-            uint32_t outLen = dataLen;
+        off += 8 + ckSize + (ckSize & 1);
+    }
 
-            if (fmtRate != deviceRate && fmtRate > 0) {
-                // Linear resample to the device rate (S16 stereo).
-                uint32_t inFrames = dataLen / 4;
-                uint32_t outFrames = (uint32_t)((uint64_t)inFrames * deviceRate / fmtRate);
-                if (outFrames < 1) outFrames = 1;
-                std::vector<uint8_t>* conv = new std::vector<uint8_t>(outFrames * 4);
-                for (uint32_t i = 0; i < outFrames; i++) {
-                    double t = (double)i * (double)fmtRate / (double)deviceRate;
-                    uint32_t i0 = (uint32_t)t;
-                    if (i0 >= inFrames) i0 = inFrames - 1;
-                    uint32_t i1 = (i0 + 1 < inFrames) ? i0 + 1 : i0;
-                    double f = t - (double)i0;
-                    for (int ch = 0; ch < 2; ch++) {
-                        int16_t s0 = (int16_t)(data[i0 * 4 + ch * 2] |
-                                               ((int16_t)data[i0 * 4 + ch * 2 + 1] << 8));
-                        int16_t s1 = (int16_t)(data[i1 * 4 + ch * 2] |
-                                               ((int16_t)data[i1 * 4 + ch * 2 + 1] << 8));
-                        int16_t v = (int16_t)((double)s0 + ((double)s1 - (double)s0) * f);
-                        (*conv)[i * 4 + ch * 2]     = (uint8_t)(v & 0xFF);
-                        (*conv)[i * 4 + ch * 2 + 1] = (uint8_t)((v >> 8) & 0xFF);
-                    }
-                }
-                outData = conv->data();
-                outLen = outFrames * 4;
-                g_keepAlive.push_back(conv);
-                KLAXON_LOG("res: resampled %s %u -> %u Hz", s.path.c_str(),
-                           fmtRate, deviceRate);
-            }
+    if (!haveFmt || !haveData) {
+        KLAXON_LOG("res: wav missing fmt/data chunk: %s", s.path.c_str());
+        return false;
+    }
+    if (fmtRate == 0 || (fmtChannels != 1 && fmtChannels != 2) ||
+        (fmtBits != 8 && fmtBits != 16)) {
+        KLAXON_LOG("res: wav format unsupported rate=%u ch=%u bits=%u: %s",
+                   fmtRate, fmtChannels, fmtBits, s.path.c_str());
+        return false;
+    }
 
-            Mix_Chunk* chunk = Mix_QuickLoad_RAW(outData, outLen);
-            if (chunk) {
-                KLAXON_LOG("res: quickload ok %s (%u bytes raw, %u Hz)",
-                           s.path.c_str(), outLen, deviceRate);
-                // Keep every buffer the chunk references alive until shutdown.
-                g_keepAlive.push_back(s.buf);
-                s.buf = nullptr;
-                s.valid = false;
-                return chunk;
+    const int    ch      = (int)fmtChannels;
+    const int    bytes   = (int)fmtBits / 8;
+    const size_t inFrames = dataLen / (size_t)(bytes * ch);
+    if (inFrames == 0) {
+        KLAXON_LOG("res: wav has no samples: %s", s.path.c_str());
+        return false;
+    }
+
+    auto sampleAt = [&](size_t f, int c) -> int16_t {
+        const int src = (ch == 2) ? c : 0;
+        const size_t o = (f * (size_t)ch + (size_t)src) * (size_t)bytes;
+        if (fmtBits == 16) {
+            return (int16_t)((uint16_t)data[o] | ((uint16_t)data[o + 1] << 8));
+        }
+        return (int16_t)(((int)data[o] - 128) << 8);   // 8-bit unsigned -> S16
+    };
+
+    uint32_t outFrames = (uint32_t)((uint64_t)inFrames * deviceRate / fmtRate);
+    if (outFrames < 1) outFrames = 1;
+    out->pcm.resize((size_t)outFrames * 2);
+    out->frames = outFrames;
+
+    if (fmtRate == deviceRate && outFrames == (uint32_t)inFrames) {
+        for (size_t f = 0; f < inFrames; f++) {
+            out->pcm[f * 2 + 0] = sampleAt(f, 0);
+            out->pcm[f * 2 + 1] = sampleAt(f, 1);
+        }
+    } else {
+        for (uint32_t i = 0; i < outFrames; i++) {
+            const double t  = (double)i * (double)fmtRate / (double)deviceRate;
+            size_t i0 = (size_t)t;
+            if (i0 >= inFrames) i0 = inFrames - 1;
+            const size_t i1 = (i0 + 1 < inFrames) ? i0 + 1 : i0;
+            const double f  = t - (double)i0;
+            for (int c = 0; c < 2; c++) {
+                const double s0 = (double)sampleAt(i0, c);
+                const double s1 = (double)sampleAt(i1, c);
+                double v = s0 + (s1 - s0) * f;
+                if (v >  32767.0) v =  32767.0;
+                if (v < -32768.0) v = -32768.0;
+                out->pcm[i * 2 + c] = (int16_t)v;
             }
-            KLAXON_LOG("res: Mix_QuickLoad_RAW FAILED: %s", Mix_GetError());
-        } else if (haveFmt) {
-            KLAXON_LOG("res: wav format unsupported rate=%u ch=%u bits=%u - fallback",
-                       fmtRate, fmtChannels, fmtBits);
         }
     }
 
-    // Last-resort fallback for odd formats (mono/8-bit): full SDL_mixer
-    // decode from memory.  Known to wedge on hardware - logged loudly.
-    KLAXON_LOG("res: WARNING falling back to Mix_LoadWAV_RW (may hang): %s",
-               s.path.c_str());
-    SDL_RWops* rw = SDL_RWFromMem(s.buf->data(), (int)s.buf->size());
-    if (!rw) return nullptr;
-    Mix_Chunk* chunk = Mix_LoadWAV_RW(rw, 0);
-    SDL_RWclose(rw);
+    KLAXON_LOG("res: pcm ready %s (%u frames, %u -> %u Hz)",
+               s.path.c_str(), outFrames, fmtRate, deviceRate);
 
+    // The staged bytes are no longer needed.
     delete s.buf;
     s.buf = nullptr;
     s.valid = false;
-
-    if (!chunk) {
-        KLAXON_LOG("res: staged decode FAILED (%s): %s", s.path.c_str(),
-                   Mix_GetError());
-    }
-    return chunk;
+    return true;
 }
 
 void ResShutdown() {
@@ -266,6 +250,10 @@ void ResShutdown() {
         e.buf = nullptr;
     }
     g_fonts.clear();
-    for (auto* b : g_keepAlive) delete b;
-    g_keepAlive.clear();
+    for (auto& s : g_staged) {
+        delete s.buf;
+        s.buf = nullptr;
+        s.valid = false;
+    }
+    g_staged.clear();
 }
