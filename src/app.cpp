@@ -70,6 +70,7 @@ void App::stageSounds() {
 }
 
 void App::decodeSounds() {
+    KLAXON_LOG("decodeSounds: begin");
     sndGunshot_   = ResDecodeWav(sndStage_[0]);
     sndGoodHit_   = ResDecodeWav(sndStage_[1]);
     sndBadHit_    = ResDecodeWav(sndStage_[2]);
@@ -78,6 +79,7 @@ void App::decodeSounds() {
     sndActionMax_ = ResDecodeWav(sndStage_[5]);
     sndSteadyAim_ = ResDecodeWav(sndStage_[6]);
     sndSplash_    = ResDecodeWav(sndStage_[7]);
+    KLAXON_LOG("decodeSounds: done");
     KLAXON_LOG("sounds decoded: gun=%d good=%d bad=%d over=%d ready=%d jingle=%d splash=%d",
                sndGunshot_ != nullptr, sndGoodHit_ != nullptr,
                sndBadHit_ != nullptr, sndGameOver_ != nullptr,
