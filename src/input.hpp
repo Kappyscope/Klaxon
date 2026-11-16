@@ -37,6 +37,7 @@ private:
         bool  connected = false;
         bool  heldB = false;
         bool  heldA = false;
+        bool  heldMinus = false;
         float posX = 0.5f, posY = 0.5f;
         bool  posValid = false;
         int   lostFrames = 0;

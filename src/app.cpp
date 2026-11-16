@@ -110,14 +110,13 @@ void App::decodeSounds() {
 }
 
 void App::warmTitleText() {
-    const SDL_Color orange = { 255, 107, 26, 255 };
+    const SDL_Color orange = { 92, 160, 255, 255 };
     const SDL_Color white  = { 235, 235, 240, 255 };
-    const SDL_Color amber  = { 255, 210, 63, 255 };
-    const SDL_Color gray   = { 170, 175, 185, 255 };
-    const SDL_Color dim    = { 130, 135, 145, 255 };
+    const SDL_Color amber  = { 92, 160, 255, 255 };
+    const SDL_Color gray   = { 176, 205, 245, 255 };
+    const SDL_Color dim    = { 150, 165, 195, 255 };
     int w = 0, h = 0;
 
-    hud_.textTexture("wordmark", "KLAXON", hud_.fontDisplay(96), orange, &w, &h);
     hud_.textTexture("titlesub", "A C T I O N   M A X", hud_.fontBody(20), white, &w, &h);
     hud_.textTexture("lastgametitle", "LAST GAME", hud_.fontBody(20), amber, &w, &h);
 
@@ -133,7 +132,7 @@ void App::warmTitleText() {
 
     hud_.textTexture("pullstart", "PULL TRIGGER TO START", hud_.fontBody(20),
                      amber, &w, &h);
-    hud_.textTexture("credit1", "Action Max scripts & assets by ScottD",
+    hud_.textTexture("credit1", "ScottD / Singe / DAPHNE",
                      hud_.fontBody(16), dim, &w, &h);
     hud_.textTexture("credit2", "Emulation: Singe / DAPHNE",
                      hud_.fontBody(16), dim, &w, &h);
@@ -777,21 +776,29 @@ void App::renderSplash() {
     SDL_SetRenderDrawColor(renderer_, 8, 10, 16, 255);
     SDL_RenderClear(renderer_);
 
-    int w = 0, h = 0;
-    SDL_Color orange = { 255, 107, 26, 255 };
-    SDL_Texture* mark = hud_.textTexture("wordmark", "KLAXON",
-                                         hud_.fontDisplay(96), orange, &w, &h);
-    if (mark) {
-        float fade = stateTime_ < 0.5f ? stateTime_ / 0.5f
-                    : (stateTime_ > 1.1f ? (1.6f - stateTime_) / 0.5f : 1.0f);
-        if (fade < 0) fade = 0;
-        SDL_SetTextureAlphaMod(mark, (Uint8)(255 * fade));
-        SDL_Rect dst = { (SCREEN_W - w) / 2, (SCREEN_H - h) / 2 - 30, w, h };
-        SDL_RenderCopy(renderer_, mark, nullptr, &dst);
+    // KLAXON wordmark (real logo asset), fading in and out with the splash.
+    float fade = stateTime_ < 0.5f ? stateTime_ / 0.5f
+                : (stateTime_ > 1.1f ? (1.6f - stateTime_) / 0.5f : 1.0f);
+    if (fade < 0) fade = 0;
+    SDL_Texture* logo = hud_.texLogo();
+    if (logo) {
+        SDL_SetTextureAlphaMod(logo, (Uint8)(255 * fade));
+        hud_.drawLogo(SCREEN_W / 2, (SCREEN_H - 200) / 2 - 30, 700);
+        SDL_SetTextureAlphaMod(logo, 255);
+    } else {
+        int w = 0, h = 0;
+        SDL_Color accent = { 92, 160, 255, 255 };
+        SDL_Texture* mark = hud_.textTexture("wordmark", "KLAXON",
+                                             hud_.fontDisplay(96), accent, &w, &h);
+        if (mark) {
+            SDL_SetTextureAlphaMod(mark, (Uint8)(255 * fade));
+            SDL_Rect dst = { (SCREEN_W - w) / 2, (SCREEN_H - h) / 2 - 30, w, h };
+            SDL_RenderCopy(renderer_, mark, nullptr, &dst);
+        }
     }
 
     int sw = 0, sh = 0;
-    SDL_Color gray = { 150, 155, 165, 255 };
+    SDL_Color gray = { 150, 165, 195, 255 };
     SDL_Texture* sub = hud_.textTexture("splashsub", "AN ACTION MAX EXPERIENCE",
                                         hud_.fontBody(16), gray, &sw, &sh);
     if (sub) {
@@ -820,29 +827,26 @@ void App::renderTitle() {
                                    (Uint8)(shades[i] + 7), 255);
             SDL_RenderFillRect(renderer_, &band);
         }
-        SDL_SetRenderDrawColor(renderer_, 255, 107, 26, 110);
+        SDL_SetRenderDrawColor(renderer_, 92, 160, 255, 110);
         SDL_Rect rule = { SCREEN_W / 2 - 300, 252, 600, 2 };
         SDL_RenderFillRect(renderer_, &rule);
     }
 
-    // Wordmark.
+    // Wordmark: the real KLAXON logo, with the subtitle under it.
     if (titleLevel_ >= 2) {
-    int w = 0, h = 0;
-    SDL_Color orange = { 255, 107, 26, 255 };
-    SDL_Texture* mark = hud_.textTexture("wordmark", "KLAXON",
-                                         hud_.fontDisplay(96), orange, &w, &h);
-    if (mark) {
-        SDL_Rect dst = { (SCREEN_W - w) / 2, 110, w, h };
-        SDL_RenderCopy(renderer_, mark, nullptr, &dst);
-    }
-    int sw = 0, sh = 0;
-    SDL_Color white = { 235, 235, 240, 255 };
-    SDL_Texture* sub = hud_.textTexture("titlesub", "A C T I O N   M A X",
-                                        hud_.fontBody(20), white, &sw, &sh);
-    if (sub) {
-        SDL_Rect dst = { (SCREEN_W - sw) / 2, 110 + h + 8, sw, sh };
-        SDL_RenderCopy(renderer_, sub, nullptr, &dst);
-    }
+        const int logoW = 560;
+        const int logoTop = 44;
+        const int logoH = 675 * logoW / 1822;   // asset is 1822x675
+        hud_.drawLogo(SCREEN_W / 2, logoTop, logoW);
+
+        int sw = 0, sh = 0;
+        SDL_Color subCol = { 176, 205, 245, 255 };
+        SDL_Texture* sub = hud_.textTexture("titlesub", "A C T I O N   M A X",
+                                            hud_.fontBody(20), subCol, &sw, &sh);
+        if (sub) {
+            SDL_Rect dst = { (SCREEN_W - sw) / 2, logoTop + logoH + 10, sw, sh };
+            SDL_RenderCopy(renderer_, sub, nullptr, &dst);
+        }
     }  // titleLevel_ >= 2 (wordmark)
 
     // LAST GAME panel (top-left).
@@ -850,11 +854,11 @@ void App::renderTitle() {
         SDL_Rect panel = { 36, 300, 320, 170 };
         SDL_SetRenderDrawColor(renderer_, 10, 12, 20, 216);
         SDL_RenderFillRect(renderer_, &panel);
-        SDL_SetRenderDrawColor(renderer_, 255, 107, 26, 255);
+        SDL_SetRenderDrawColor(renderer_, 92, 160, 255, 255);
         SDL_RenderDrawRect(renderer_, &panel);
 
         int lw = 0, lh = 0;
-        SDL_Color amber = { 255, 210, 63, 255 };
+        SDL_Color amber = { 92, 160, 255, 255 };
         SDL_Texture* t = hud_.textTexture("lastgametitle", "LAST GAME",
                                           hud_.fontBody(20), amber, &lw, &lh);
         if (t) {
@@ -863,7 +867,7 @@ void App::renderTitle() {
         }
 
         char buf[96];
-        SDL_Color gray = { 170, 175, 185, 255 };
+        SDL_Color gray = { 176, 205, 245, 255 };
         char lines[4][96];
         snprintf(lines[0], sizeof(lines[0]), "Shots Fired: %d", lastShots_);
         snprintf(lines[1], sizeof(lines[1]), "Good Hits:   %d", lastGood_);
@@ -886,29 +890,21 @@ void App::renderTitle() {
     // Pull trigger prompt (pulsing).
     if (titleLevel_ >= 4) {
         int pw = 0, ph = 0;
-        SDL_Color amber = { 255, 210, 63, 255 };
+        SDL_Color amber = { 92, 160, 255, 255 };
         SDL_Texture* t = hud_.textTexture("pullstart", "PULL TRIGGER TO START",
                                           hud_.fontBody(20), amber, &pw, &ph);
         hud_.drawPulsingCentred(t, pw, ph, SCREEN_H - 130, pulse_);
     }
 
-    // Credits (two short lines: one wide texture was upsetting the renderer).
+    // Credits: one short line, bottom-left, clear of the centred toast.
     if (titleLevel_ >= 5) {
         int cw = 0, ch = 0;
-        SDL_Color gray = { 130, 135, 145, 255 };
-        const char* l1 = "Action Max scripts & assets by ScottD";
-        const char* l2 = "Emulation: Singe / DAPHNE";
-        SDL_Texture* t1 = hud_.textTexture("credit1", l1, hud_.fontBody(16),
-                                           gray, &cw, &ch);
+        SDL_Color gray = { 150, 165, 195, 255 };
+        SDL_Texture* t1 = hud_.textTexture("credit1", "ScottD / Singe / DAPHNE",
+                                           hud_.fontBody(16), gray, &cw, &ch);
         if (t1) {
-            SDL_Rect dst = { (SCREEN_W - cw) / 2, SCREEN_H - 58, cw, ch };
+            SDL_Rect dst = { 36, SCREEN_H - 30, cw, ch };
             SDL_RenderCopy(renderer_, t1, nullptr, &dst);
-        }
-        SDL_Texture* t2 = hud_.textTexture("credit2", l2, hud_.fontBody(16),
-                                           gray, &cw, &ch);
-        if (t2) {
-            SDL_Rect dst = { (SCREEN_W - cw) / 2, SCREEN_H - 40, cw, ch };
-            SDL_RenderCopy(renderer_, t2, nullptr, &dst);
         }
     }
 
@@ -920,7 +916,7 @@ void App::renderGameSelect() {
     SDL_RenderClear(renderer_);
 
     int w = 0, h = 0;
-    SDL_Color orange = { 255, 107, 26, 255 };
+    SDL_Color orange = { 92, 160, 255, 255 };
     SDL_Texture* head = hud_.textTexture("selecthead", "SELECT GAME",
                                          hud_.fontDisplay(48), orange, &w, &h);
     if (head) {
@@ -944,7 +940,7 @@ void App::renderGameSelect() {
         SDL_SetRenderDrawColor(renderer_, 10, 12, 20, 230);
         SDL_RenderFillRect(renderer_, &card);
 
-        SDL_Color border = sel ? SDL_Color{ 255, 107, 26, 255 }
+        SDL_Color border = sel ? SDL_Color{ 92, 160, 255, 255 }
                                : SDL_Color{ 60, 64, 76, 255 };
         SDL_SetRenderDrawColor(renderer_, border.r, border.g, border.b, 255);
         SDL_RenderDrawRect(renderer_, &card);
@@ -1005,14 +1001,14 @@ void App::renderGameType() {
                          const char* id1, const char* id2) {
         SDL_SetRenderDrawColor(renderer_, 10, 12, 20, 200);
         SDL_RenderFillRect(renderer_, &r);
-        SDL_Color border = sel ? SDL_Color{ 255, 107, 26, 255 }
+        SDL_Color border = sel ? SDL_Color{ 92, 160, 255, 255 }
                                : SDL_Color{ 60, 64, 76, 255 };
         SDL_SetRenderDrawColor(renderer_, border.r, border.g, border.b, 255);
         SDL_RenderDrawRect(renderer_, &r);
 
         int w = 0, h = 0;
         SDL_Color white = { 235, 235, 240, 255 };
-        SDL_Color amber = { 255, 210, 63, 255 };
+        SDL_Color amber = { 92, 160, 255, 255 };
         SDL_Color gray  = { 170, 175, 185, 255 };
         SDL_Texture* ht = hud_.textTexture(idh, heading,
                                            hud_.fontDisplay(48), amber, &w, &h);
@@ -1042,7 +1038,7 @@ void App::renderGameType() {
     int hw = 0, hh = 0;
     SDL_Texture* head = hud_.textTexture("typetitle", "SELECT GAME TYPE",
                                          hud_.fontDisplay(48),
-                                         SDL_Color{ 255, 107, 26, 255 },
+                                         SDL_Color{ 92, 160, 255, 255 },
                                          &hw, &hh);
     if (head) {
         SDL_Rect dst = { (SCREEN_W - hw) / 2, 40, hw, hh };
@@ -1086,7 +1082,7 @@ void App::renderVideoScreen(bool hud) {
         int w = 0, h = 0;
         SDL_Texture* t = hud_.textTexture("getready", "GET READY!",
                                           hud_.fontDisplay(48),
-                                          SDL_Color{ 255, 210, 63, 255 },
+                                          SDL_Color{ 92, 160, 255, 255 },
                                           &w, &h);
         hud_.drawPulsingCentred(t, w, h, SCREEN_H - 150, pulse_);
     }
@@ -1142,7 +1138,7 @@ void App::renderGameOver() {
     int pw = 0, ph = 0;
     SDL_Texture* t = hud_.textTexture("gocont", "PULL B TO CONTINUE",
                                       hud_.fontBody(20),
-                                      SDL_Color{ 255, 210, 63, 255 }, &pw, &ph);
+                                      SDL_Color{ 92, 160, 255, 255 }, &pw, &ph);
     hud_.drawPulsingCentred(t, pw, ph, SCREEN_H - 110, pulse_);
 }
 

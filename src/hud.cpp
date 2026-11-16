@@ -11,13 +11,18 @@
 // Palette (Klaxon redesign)
 // ---------------------------------------------------------------------------
 namespace palette {
-static const SDL_Color orange   = { 255, 107, 26, 255 };
-static const SDL_Color amber    = { 255, 210, 63, 255 };
+// Klaxon brand blue, sampled from the wordmark (#13519F), plus a bright tint
+// for text on the dark background.
+static const SDL_Color blue       = {  19,  81, 159, 255 };
+static const SDL_Color blueBright = {  92, 160, 255, 255 };
+static const SDL_Color bluePale   = { 176, 205, 245, 255 };
+static const SDL_Color orange     = {  92, 160, 255, 255 };  // accent = brand blue
+static const SDL_Color amber      = {  92, 160, 255, 255 };  // labels = brand blue
 static const SDL_Color ledRed   = { 255, 42, 42, 255 };
 static const SDL_Color ledDark  = { 70, 12, 12, 255 };
 static const SDL_Color panel    = { 10, 12, 20, 216 };
 static const SDL_Color white    = { 235, 235, 240, 255 };
-static const SDL_Color gray     = { 150, 155, 165, 255 };
+static const SDL_Color gray     = { 150, 165, 195, 255 };
 }  // namespace
 
 // ---------------------------------------------------------------------------
@@ -70,6 +75,7 @@ bool Hud::init(SDL_Renderer* renderer) {
     texLightOn_   = loadTex("assets/sprites/sprite_lighton.png");
     texLightOff_  = loadTex("assets/sprites/sprite_lightoff.png");
     texBullet_    = loadTex("assets/sprites/sprite_bullet.png");
+    texLogo_      = loadTex("assets/branding/klaxon_logo.png");
 
     KLAXON_LOG("hud: fonts %s | crosshair=%d lightOn=%d bullet=%d",
                fDisplay48_ && fBody20_ && fDseg40_ ? "OK" : "PARTIAL",
@@ -88,6 +94,7 @@ void Hud::shutdown() {
     if (texLightOn_)   { SDL_DestroyTexture(texLightOn_);   texLightOn_ = nullptr; }
     if (texLightOff_)  { SDL_DestroyTexture(texLightOff_);  texLightOff_ = nullptr; }
     if (texBullet_)    { SDL_DestroyTexture(texBullet_);    texBullet_ = nullptr; }
+    if (texLogo_)      { SDL_DestroyTexture(texLogo_);      texLogo_ = nullptr; }
     if (fDisplay48_)   { TTF_CloseFont(fDisplay48_); fDisplay48_ = nullptr; }
     if (fDisplay64_)   { TTF_CloseFont(fDisplay64_); fDisplay64_ = nullptr; }
     if (fDisplay96_)   { TTF_CloseFont(fDisplay96_); fDisplay96_ = nullptr; }
@@ -252,9 +259,19 @@ void Hud::drawToast(const char* text) {
     SDL_RenderCopy(renderer_, tex, nullptr, &tr);
 }
 
+void Hud::drawLogo(int cx, int top, int width) {
+    if (!texLogo_) return;
+    int w = 0, h = 0;
+    SDL_QueryTexture(texLogo_, nullptr, nullptr, &w, &h);
+    if (w <= 0 || h <= 0) return;
+    const int dh = h * width / w;
+    SDL_Rect dst = { cx - width / 2, top, width, dh };
+    SDL_RenderCopy(renderer_, texLogo_, nullptr, &dst);
+}
+
 void Hud::drawPulsingCentred(SDL_Texture* tex, int w, int h, int cy, float t) {
     if (!tex) return;
-    Uint8 alpha = (Uint8)(128 + 127 * SDL_sin(t * 4.0));
+    Uint8 alpha = (Uint8)(150 + 80 * SDL_sin(t * 4.0));
     SDL_SetTextureAlphaMod(tex, alpha);
     SDL_SetTextureBlendMode(tex, SDL_BLENDMODE_BLEND);
     SDL_Rect dst = { (1280 - w) / 2, cy, w, h };

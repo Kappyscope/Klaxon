@@ -52,6 +52,10 @@ public:
     SDL_Texture* texLightOn()    const { return texLightOn_; }
     SDL_Texture* texLightOff()   const { return texLightOff_; }
     SDL_Texture* texBullet()     const { return texBullet_; }
+    SDL_Texture* texLogo()       const { return texLogo_; }
+
+    // Draws the KLAXON wordmark scaled to `width`, centred on (cx, top).
+    void drawLogo(int cx, int top, int width);
 
 private:
     SDL_Texture* loadTex(const char* rel);
@@ -68,6 +72,7 @@ private:
     SDL_Texture* texLightOn_   = nullptr;
     SDL_Texture* texLightOff_  = nullptr;
     SDL_Texture* texBullet_    = nullptr;
+    SDL_Texture* texLogo_      = nullptr;
 
     // tiny text cache
     struct CachedText {

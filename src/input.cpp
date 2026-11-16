@@ -61,12 +61,21 @@ void InputManager::update(float dt) {
 
     for (int c = 0; c < 4; c++) {
         Chan& ch = chans_[c];
-        KPADStatus k;
+        KPADStatus kbuf[8];
         KPADError err;
-        uint32_t n = KPADReadEx((KPADChan)c, &k, 1, &err);
+        // Read up to 8 queued samples and use the newest: reading a single
+        // status can miss button edges when the remote reports in bursts.
+        uint32_t n = KPADReadEx((KPADChan)c, kbuf, 8, &err);
 
         if (n > 0 && err == KPAD_ERROR_OK) {
+            KPADStatus k = kbuf[n - 1];
             ch.connected = true;
+
+            bool wasMinus = ch.heldMinus;
+            ch.heldMinus = (k.hold & WPAD_BUTTON_MINUS) != 0;
+            if (ch.heldMinus && !wasMinus) {
+                KLAXON_LOG("input: '-' pressed (ch %d)", c);
+            }
 
             bool wasB = ch.heldB;
             bool wasA = ch.heldA;
@@ -142,7 +151,7 @@ void InputManager::update(float dt) {
         } else {
             ch.connected = false;
             ch.posValid = false;
-            ch.heldB = ch.heldA = false;
+            ch.heldB = ch.heldA = ch.heldMinus = false;
         }
     }
 
