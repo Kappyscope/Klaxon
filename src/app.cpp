@@ -49,31 +49,52 @@ void App::loadSettings() {
     fclose(f);
 }
 
-bool App::loadSounds() {
-    auto load = [&](const char* rel) -> Mix_Chunk* {
+void App::stageSounds() {
+    auto stage = [&](int slot, const char* rel) {
         std::string path = ResolveAssetPath(rel);
         if (path.empty()) {
             KLAXON_LOG("sound missing: %s", rel);
-            return nullptr;
+            sndStage_[slot] = -1;
+            return;
         }
-        Mix_Chunk* c = ResLoadWav(path);
-        if (!c) KLAXON_LOG("Mix_LoadWAV(%s) failed", rel);
-        return c;
+        sndStage_[slot] = ResStageWav(path);
     };
-    sndGunshot_   = load("assets/sounds/sound_gunshot.wav");
-    sndGoodHit_   = load("assets/sounds/sound_goodhit.wav");
-    sndBadHit_    = load("assets/sounds/sound_badhit.wav");
-    sndGameOver_  = load("assets/sounds/sound_gameover.wav");
-    sndGetReady_  = load("assets/sounds/sound_getreadyforaction.wav");
-    sndActionMax_ = load("assets/sounds/sound_actionmax.wav");
-    sndSteadyAim_ = load("assets/sounds/sound_asteadyaimiscritical.wav");
-    sndSplash_    = load("assets/sounds/sound_splash.wav");
-    KLAXON_LOG("sounds: gun=%d good=%d bad=%d over=%d ready=%d jingle=%d splash=%d",
+    stage(0, "assets/sounds/sound_gunshot.wav");
+    stage(1, "assets/sounds/sound_goodhit.wav");
+    stage(2, "assets/sounds/sound_badhit.wav");
+    stage(3, "assets/sounds/sound_gameover.wav");
+    stage(4, "assets/sounds/sound_getreadyforaction.wav");
+    stage(5, "assets/sounds/sound_actionmax.wav");
+    stage(6, "assets/sounds/sound_asteadyaimiscritical.wav");
+    stage(7, "assets/sounds/sound_splash.wav");
+}
+
+void App::decodeSounds() {
+    sndGunshot_   = ResDecodeWav(sndStage_[0]);
+    sndGoodHit_   = ResDecodeWav(sndStage_[1]);
+    sndBadHit_    = ResDecodeWav(sndStage_[2]);
+    sndGameOver_  = ResDecodeWav(sndStage_[3]);
+    sndGetReady_  = ResDecodeWav(sndStage_[4]);
+    sndActionMax_ = ResDecodeWav(sndStage_[5]);
+    sndSteadyAim_ = ResDecodeWav(sndStage_[6]);
+    sndSplash_    = ResDecodeWav(sndStage_[7]);
+    KLAXON_LOG("sounds decoded: gun=%d good=%d bad=%d over=%d ready=%d jingle=%d splash=%d",
                sndGunshot_ != nullptr, sndGoodHit_ != nullptr,
                sndBadHit_ != nullptr, sndGameOver_ != nullptr,
                sndGetReady_ != nullptr, sndActionMax_ != nullptr,
                sndSplash_ != nullptr);
-    return true;
+}
+
+void App::preloadTextures() {
+    for (size_t i = 0; i < registry_.games().size() && i < 5; i++) {
+        const GameConfig& cfg = registry_.games()[i];
+        std::string bgPath  = ResolveAssetPath("assets/backgrounds/" + cfg.id + ".png");
+        std::string artPath = ResolveAssetPath("assets/sprites/sprite_" + cfg.id + ".png");
+        texBg_[i]  = bgPath.empty()  ? nullptr : ResLoadTexture(renderer_, bgPath);
+        texArt_[i] = artPath.empty() ? nullptr : ResLoadTexture(renderer_, artPath);
+        KLAXON_LOG("preload %-14s bg=%d art=%d", cfg.id.c_str(),
+                   texBg_[i] != nullptr, texArt_[i] != nullptr);
+    }
 }
 
 bool App::init() {
@@ -122,19 +143,23 @@ bool App::init() {
     registry_.load(fullVerify_);
 
     // All asset file reads happen BEFORE the audio stack and decode thread
-    // start: on hardware, content-mount reads hang once SDL's audio thread
-    // is live.  Fonts/textures/sounds land fully in memory here.
+    // start: on hardware, file reads hang once SDL's audio thread is live.
+    // Fonts/textures land in memory here; WAV files are staged as raw bytes.
     input_.init();
     hud_.init(renderer_);
-    loadSounds();
+    stageSounds();
+    preloadTextures();
+
+    // Audio device + decode thread LAST, after every file read is done.
+    tape_.init();
     Mix_AllocateChannels(8);
 
     // Title jingle chaining (Singe behaviour).
     g_appForAudio = this;
     Mix_ChannelFinished(&channelFinishedCb);
 
-    // Audio device + decode thread LAST, after every file read is done.
-    tape_.init();
+    // Decode the staged WAVs now that the device exists.
+    decodeSounds();
 
     state_ = (registry_.readyCount() > 0 && registry_.commonReady)
                  ? AppState::SPLASH
@@ -173,6 +198,11 @@ void App::shutdown() {
     Mix_ChannelFinished(nullptr);
     g_appForAudio = nullptr;
 
+    for (int i = 0; i < 5; i++) {
+        if (texBg_[i])  { SDL_DestroyTexture(texBg_[i]);  texBg_[i] = nullptr; }
+        if (texArt_[i]) { SDL_DestroyTexture(texArt_[i]); texArt_[i] = nullptr; }
+    }
+
     if (texVideo_) { SDL_DestroyTexture(texVideo_); texVideo_ = nullptr; }
     hud_.shutdown();
     ResShutdown();   // free font buffers AFTER TTF_CloseFont ran in hud
@@ -202,6 +232,7 @@ void App::enterTitle() {
     state_ = AppState::TITLE;
     stateTime_ = 0.0f;
     activeGame_ = -1;
+    KLAXON_LOG("-> TITLE");
 
     // Title jingle once per title visit (Singe: on stateSetup).
     if (!titleJingleDone_ && sndActionMax_) {
@@ -392,6 +423,12 @@ void App::run() {
         update(dt);
         if (!running_) break;
         render();
+        frameCount_++;
+        if (frameCount_ % 300 == 0) {
+            KLAXON_LOG("alive: frame %d state=%d underruns=%u dropped=%u",
+                       frameCount_, (int)state_,
+                       tape_.audioUnderruns(), tape_.framesDropped());
+        }
     }
 
     KLAXON_LOG("run: exit");
@@ -537,27 +574,19 @@ void App::videoRect(SDL_Rect* out) const {
 }
 
 void App::drawBackgroundStills(const GameConfig& cfg, int cx, int cy, int w, int h) {
-    std::string rel = "assets/backgrounds/" + cfg.id + ".png";
-    std::string path = ResolveAssetPath(rel);
-    SDL_Texture* bg = nullptr;
-    if (!path.empty()) bg = ResLoadTexture(renderer_, path);
+    int idx = -1;
+    for (size_t i = 0; i < registry_.games().size(); i++) {
+        if (registry_.games()[i].id == cfg.id) { idx = (int)i; break; }
+    }
+    SDL_Texture* bg = (idx >= 0) ? texBg_[idx] : nullptr;
     if (bg) {
         SDL_Rect dst = { cx - w / 2, cy - h / 2, w, h };
         SDL_SetTextureAlphaMod(bg, 120);
         SDL_RenderCopy(renderer_, bg, nullptr, &dst);
-        SDL_DestroyTexture(bg);
-    } else {
-        std::string artPath = ResolveAssetPath(
-            "assets/sprites/sprite_" + cfg.id + ".png");
-        if (!artPath.empty()) {
-            SDL_Texture* art = ResLoadTexture(renderer_, artPath);
-            if (art) {
-                SDL_Rect dst = { cx - w / 4, cy - h / 4, w / 2, h / 2 };
-                SDL_SetTextureAlphaMod(art, 90);
-                SDL_RenderCopy(renderer_, art, nullptr, &dst);
-                SDL_DestroyTexture(art);
-            }
-        }
+    } else if (idx >= 0 && texArt_[idx]) {
+        SDL_Rect dst = { cx - w / 4, cy - h / 4, w / 2, h / 2 };
+        SDL_SetTextureAlphaMod(texArt_[idx], 90);
+        SDL_RenderCopy(renderer_, texArt_[idx], nullptr, &dst);
     }
 }
 
@@ -731,16 +760,10 @@ void App::renderGameSelect() {
             SDL_RenderDrawRect(renderer_, &outer);
         }
 
-        // Box art.
-        std::string artPath = ResolveAssetPath(
-            "assets/sprites/sprite_" + cfg.id + ".png");
-        if (!artPath.empty()) {
-            SDL_Texture* art = ResLoadTexture(renderer_, artPath);
-            if (art) {
-                SDL_Rect artRect = { x + 5, yy + 5, cardW - 10, cardH - 50 };
-                SDL_RenderCopy(renderer_, art, nullptr, &artRect);
-                SDL_DestroyTexture(art);
-            }
+        // Box art (preloaded at boot).
+        if (texArt_[i]) {
+            SDL_Rect artRect = { x + 5, yy + 5, cardW - 10, cardH - 50 };
+            SDL_RenderCopy(renderer_, texArt_[i], nullptr, &artRect);
         }
 
         // Title + readiness.

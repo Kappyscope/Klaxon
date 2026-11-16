@@ -23,6 +23,12 @@ TTF_Font* ResOpenFont(const std::string& path, int px);
 SDL_Texture* ResLoadTexture(SDL_Renderer* renderer, const std::string& path);
 Mix_Chunk* ResLoadWav(const std::string& path);
 
+// Two-phase WAV loading: the FILE read must happen before the audio device
+// opens (SD reads pre-audio are proven safe); the Mix_Chunk decode needs the
+// device open (SDL_mixer converts against the device format at load).
+int  ResStageWav(const std::string& path);   // returns staged id, -1 on fail
+Mix_Chunk* ResDecodeWav(int stagedId);       // after audio device open
+
 // Frees the font buffers + RWops.  Call once, after every TTF_Font obtained
 // from ResOpenFont has been closed with TTF_CloseFont.
 void ResShutdown();

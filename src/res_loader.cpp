@@ -120,6 +120,54 @@ Mix_Chunk* ResLoadWav(const std::string& path) {
     return chunk;
 }
 
+// ---------------------------------------------------------------------------
+// Staged WAVs: file read at boot (pre-audio), decode after the device opens.
+// ---------------------------------------------------------------------------
+
+struct StagedWav {
+    bool valid = false;
+    std::vector<uint8_t>* buf = nullptr;
+    std::string path;
+};
+
+std::vector<StagedWav> g_staged;
+
+int ResStageWav(const std::string& path) {
+    StagedWav s;
+    s.buf = new std::vector<uint8_t>();
+    if (!ReadWholeFile(path, *s.buf)) {
+        KLAXON_LOG("res: staged wav read FAILED: %s", path.c_str());
+        delete s.buf;
+        return -1;
+    }
+    s.valid = true;
+    s.path = path;
+    g_staged.push_back(s);
+    return (int)g_staged.size() - 1;
+}
+
+Mix_Chunk* ResDecodeWav(int stagedId) {
+    if (stagedId < 0 || stagedId >= (int)g_staged.size()) return nullptr;
+    StagedWav& s = g_staged[stagedId];
+    if (!s.valid || !s.buf) return nullptr;
+
+    SDL_RWops* rw = SDL_RWFromMem(s.buf->data(), (int)s.buf->size());
+    if (!rw) return nullptr;
+    Mix_Chunk* chunk = Mix_LoadWAV_RW(rw, 0);
+    SDL_RWclose(rw);
+
+    // The staged buffer is fully consumed by the decode; release it.
+    delete s.buf;
+    s.buf = nullptr;
+    s.valid = false;
+
+    if (!chunk) {
+        KLAXON_LOG("res: staged decode FAILED (%s): %s", s.path.c_str(),
+                   Mix_GetError());
+    }
+    return chunk;
+}
+
 void ResShutdown() {
     // Frees RWops + buffers.  Fonts themselves are closed by their owners
     // (TTF_CloseFont) BEFORE this runs.

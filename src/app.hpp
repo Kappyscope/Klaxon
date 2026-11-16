@@ -73,7 +73,9 @@ private:
     void videoRect(SDL_Rect* out) const;
     void aimToOverlay(int* ox, int* oy) const;
     void playChunk(Mix_Chunk* chunk);
-    bool loadSounds();
+    void stageSounds();
+    void decodeSounds();
+    void preloadTextures();
     void loadSettings();
     void drawBackgroundStills(const GameConfig& cfg, int cx, int cy, int w, int h);
     void drawVideo(const SDL_Rect& vr);
@@ -109,6 +111,11 @@ private:
     Mix_Chunk* sndActionMax_ = nullptr;
     Mix_Chunk* sndSteadyAim_ = nullptr;
     Mix_Chunk* sndSplash_    = nullptr;   // user-provided boot jingle (SPLASH)
+    int        sndStage_[8]  = {};          // staged file reads (pre-audio)
+
+    // Preloaded textures (read at boot, zero file I/O during the run loop)
+    SDL_Texture* texBg_[5]  = {};   // title background stills
+    SDL_Texture* texArt_[5] = {};   // box arts
     int    actionMaxChannel_ = -1;
     float  hitLightTimer_ = 0.0f;
     bool   titleJingleDone_ = false;
@@ -125,4 +132,5 @@ private:
     bool running_     = false;
     bool inForeground_ = true;
     bool shutDown_    = false;
+    int  frameCount_  = 0;
 };
