@@ -133,6 +133,7 @@ private:
     SDL_Texture* texArt_[5] = {};   // box arts
     int    actionMaxId_ = -1;   // the clip whose end chains "A Steady Aim..."
     bool   actionMaxPlaying_ = false;
+    bool   menuTapePending_ = false;   // open the menu tape after game over settles
     float  hitLightTimer_ = 0.0f;
     bool   titleJingleDone_ = false;
     bool   splashJinglePlayed_ = false;

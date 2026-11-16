@@ -367,16 +367,18 @@ void App::finishGame(bool outOfAmmo) {
                (int)outOfAmmo);
 
     if (outOfAmmo && sndGameOver_ >= 0) tape_.playSfx(sndGameOver_);
+    KLAXON_LOG("game over: sting queued");
 
-    if (!registry_.menuMediaPath.empty()) {
-        tape_.startMenuLoop(registry_.menuMediaPath);
-    } else {
-        tape_.stop();
-    }
+    // Opening the menu tape allocates a whole new pl_mpeg instance; doing it in
+    // the same frame as the sting + a brand-new screen is what preceded the
+    // crash.  Deferred to the next GAME_OVER update so it is isolated.
+    menuTapePending_ = !registry_.menuMediaPath.empty();
     state_ = AppState::GAME_OVER;
     stateTime_ = 0.0f;
     inputLock_ = 0.40f;
     detector_.reset();
+    KLAXON_LOG("game over: state set (menu tape %s)",
+               menuTapePending_ ? "deferred" : "none");
 }
 
 void App::ensureVideoTexture(int w, int h) {
@@ -818,6 +820,13 @@ void App::updatePlaying(float dt) {
 }
 
 void App::updateGameOver(float) {
+    // Deferred, isolated menu-tape open (see finishGame).
+    if (menuTapePending_ && stateTime_ > 0.25f) {
+        menuTapePending_ = false;
+        KLAXON_LOG("game over: opening menu tape now");
+        tape_.startMenuLoop(registry_.menuMediaPath);
+    }
+
     if (stateTime_ > GAME_OVER_SECONDS || triggerNow()) {
         enterTitle();
     }

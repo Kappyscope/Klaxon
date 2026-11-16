@@ -612,8 +612,12 @@ void TapePlayer::mixInto(uint8_t* stream, int len) {
         if (!v.active) continue;
         int i = 0;
         for (; i < frames && v.pos < v.frames; i++, v.pos++) {
-            int32_t l = (int32_t)out[i * 2 + 0] + (int32_t)v.pcm[v.pos * 2 + 0];
-            int32_t r = (int32_t)out[i * 2 + 1] + (int32_t)v.pcm[v.pos * 2 + 1];
+            // Voices at 70%: six overlapping gunshots summed at full scale just
+            // hard-clip into a buzz.
+            int32_t l = (int32_t)out[i * 2 + 0] +
+                        ((int32_t)v.pcm[v.pos * 2 + 0] * 7) / 10;
+            int32_t r = (int32_t)out[i * 2 + 1] +
+                        ((int32_t)v.pcm[v.pos * 2 + 1] * 7) / 10;
             out[i * 2 + 0] = (int16_t)(l > 32767 ? 32767 : (l < -32768 ? -32768 : l));
             out[i * 2 + 1] = (int16_t)(r > 32767 ? 32767 : (r < -32768 ? -32768 : r));
         }
