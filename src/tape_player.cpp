@@ -114,14 +114,12 @@ void TapePlayer::shutdown() {
 
     const bool hadAudio = audioOpen_;
     if (hadAudio) {
-        // Deliberately NOT SDL_CloseAudioDevice: closing takes the same device
-        // lock that has deadlocked every SDL_mixer call on this stack.  Pause
-        // instead and let process exit reclaim the device.  The ring buffer is
-        // left allocated for the same reason - a paused driver must never be
-        // able to read freed memory.
-        SDL_PauseAudioDevice(devId_, 1);
+        // Touch nothing on the audio device here.  SDL_PauseAudioDevice takes
+        // the same device lock that deadlocked SDL_mixer, and the hardware log
+        // proved it hangs the console on the Wii U Menu transition screen.
+        // The process is about to end; the OS reclaims AX by itself.
         audioOpen_ = false;
-        KLAXON_LOG("audio: device paused (not closed - device lock unsafe here)");
+        KLAXON_LOG("audio: device left running (pausing deadlocks on hardware)");
     }
 
     OSLockMutex(&lock_);

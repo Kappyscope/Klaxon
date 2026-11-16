@@ -144,7 +144,7 @@ private:
     float inputLock_  = 0.0f;   // ignore the trigger just after a state change
     int   videoDbg_   = 0;      // decoded-frame log counter
     bool  videoStatic_ = true;  // wut: streaming textures upload "ok" but never show
-    int   videoMode_   = 0;     // 0 = update, 1 = texture from surface, 2 = lock/unlock
+    int   videoMode_   = 1;     // 0 = update, 1 = texture from surface, 2 = lock/unlock
     int   dumpFrame_  = -1;     // config: dumpframe=N writes that decoded frame
     bool  dumped_     = false;
     bool shutDown_    = false;

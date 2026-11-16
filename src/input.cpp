@@ -10,7 +10,7 @@
 
 // Hide the crosshair after this many consecutive lost IR samples (~250 ms
 // at 60 fps), matching the old build's proven behaviour.
-static const int IR_HOLD_FRAMES = 15;
+static const int IR_HOLD_FRAMES = 30;
 
 // Quit gesture: hold "-" on the Wii Remote (+ on the GamePad) this long.
 static const float QUIT_HOLD_SECONDS = 1.2f;
@@ -103,6 +103,9 @@ void InputManager::update(float dt) {
                     const float kMaxStep = 0.09f;   // ~9% of the screen / frame
                     float dx = nx - ch.posX;
                     float dy = ny - ch.posY;
+                    // Sub-threshold movement is IR jitter, not aim: ignore it.
+                    if (std::fabs(dx) < 0.008f) dx = 0.0f;
+                    if (std::fabs(dy) < 0.008f) dy = 0.0f;
                     if (dx >  kMaxStep) dx =  kMaxStep;
                     if (dx < -kMaxStep) dx = -kMaxStep;
                     if (dy >  kMaxStep) dy =  kMaxStep;

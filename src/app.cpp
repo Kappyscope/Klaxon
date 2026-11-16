@@ -256,32 +256,14 @@ void App::shutdown() {
 
     KLAXON_LOG("shutdown: begin");
 
-    tape_.shutdown();   // joins the decode thread, pauses the audio device
+    tape_.shutdown();   // decode thread only; touches no audio-device calls
 
-    sndClips_.clear();
-
-    for (int i = 0; i < 5; i++) {
-        if (texBg_[i])  { SDL_DestroyTexture(texBg_[i]);  texBg_[i] = nullptr; }
-        if (texArt_[i]) { SDL_DestroyTexture(texArt_[i]); texArt_[i] = nullptr; }
-    }
-
-    if (texVideo_) { SDL_DestroyTexture(texVideo_); texVideo_ = nullptr; }
-    hud_.shutdown();
-    ResShutdown();   // free font buffers AFTER TTF_CloseFont ran in hud
-    input_.shutdown();
-
-    if (renderer_) { SDL_DestroyRenderer(renderer_); renderer_ = nullptr; }
-    if (window_)   { SDL_DestroyWindow(window_); window_ = nullptr; }
-
-    IMG_Quit();
-    TTF_Quit();
-
-    // SDL_Quit() performs the single, canonical Wii U ProcUI exit handshake
-    // (SYSLaunchMenu + pump until EXITING + GX2 shutdown).  Never call
-    // SYSLaunchMenu() or ProcUIShutdown() ourselves - that is what
-    // softlocked the old builds.
-    KLAXON_LOG("shutdown: SDL_Quit (ProcUI exit handshake)");
-    SDL_Quit();
+    // Deliberately minimal.  Every heavier teardown tried here (audio device
+    // pause/close, renderer destroy, font free) has frozen the console during
+    // the Wii U Menu handoff.  The SDL Wii U video driver's own quit path does
+    // exactly what the OS waits for: WHBGfxShutdown() + WHBProcShutdown().
+    KLAXON_LOG("shutdown: SDL video quit (ProcUI handshake)");
+    SDL_QuitSubSystem(SDL_INIT_VIDEO);
     KLAXON_LOG("shutdown: done");
 }
 
@@ -393,7 +375,9 @@ void App::aimToOverlay(int* ox, int* oy) const {
 
 void App::consumeTapeFrames() {
     while (tape_.pollFrame()) {
-        ensureVideoTexture(tape_.frame().width, tape_.frame().height);
+        if (videoMode_ != 1) {
+            ensureVideoTexture(tape_.frame().width, tape_.frame().height);
+        }
         if (texVideo_ && tape_.frame().rgba) {
             const int vw = tape_.frame().width;
             const int vh = tape_.frame().height;
