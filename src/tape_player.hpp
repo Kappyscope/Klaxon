@@ -83,6 +83,7 @@ public:
     uint32_t audioUnderruns() const;
     uint32_t framesDropped()  const;
     float    decodeMsPerFrame() const;
+    uint32_t audioDeviceRate() const { return deviceRate_; }
 
 private:
     // --- decode-thread side ------------------------------------------------

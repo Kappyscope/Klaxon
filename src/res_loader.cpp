@@ -147,7 +147,7 @@ int ResStageWav(const std::string& path) {
     return (int)g_staged.size() - 1;
 }
 
-Mix_Chunk* ResDecodeWav(int stagedId) {
+Mix_Chunk* ResDecodeWav(int stagedId, uint32_t deviceRate) {
     if (stagedId < 0 || stagedId >= (int)g_staged.size()) return nullptr;
     StagedWav& s = g_staged[stagedId];
     if (!s.valid || !s.buf) return nullptr;
@@ -155,10 +155,9 @@ Mix_Chunk* ResDecodeWav(int stagedId) {
     KLAXON_LOG("res: decoding staged wav %s (%zu bytes)", s.path.c_str(),
                s.buf->size());
 
-    // Fast path: our prep pipeline emits canonical 48 kHz stereo S16 WAVs,
-    // which exactly match the opened device format.  Parse the RIFF manually
-    // and wrap the data chunk with Mix_QuickLoad_RAW - this never touches
-    // SDL_mixer's audio lock (which can wedge if the audio thread died).
+    // No SDL_mixer decode ever: its conversion path wedges on hardware.
+    // Parse the RIFF, then either QuickLoad the raw data (rate == device)
+    // or linear-resample to the device rate in memory first.
     std::vector<uint8_t>& b = *s.buf;
     if (b.size() > 44 && b[0] == 'R' && b[1] == 'I' && b[2] == 'F' && b[3] == 'F'
         && b[8] == 'W' && b[9] == 'A' && b[10] == 'V' && b[11] == 'E') {
@@ -186,26 +185,60 @@ Mix_Chunk* ResDecodeWav(int stagedId) {
             }
             off += 8 + ckSize + (ckSize & 1);
         }
-        if (haveFmt && haveData && fmtRate == 48000 && fmtChannels == 2 && fmtBits == 16) {
-            Mix_Chunk* chunk = Mix_QuickLoad_RAW(data, dataLen);
+        if (haveFmt && haveData && fmtBits == 16 && fmtChannels == 2) {
+            uint8_t* outData = data;
+            uint32_t outLen = dataLen;
+
+            if (fmtRate != deviceRate && fmtRate > 0) {
+                // Linear resample to the device rate (S16 stereo).
+                uint32_t inFrames = dataLen / 4;
+                uint32_t outFrames = (uint32_t)((uint64_t)inFrames * deviceRate / fmtRate);
+                if (outFrames < 1) outFrames = 1;
+                std::vector<uint8_t>* conv = new std::vector<uint8_t>(outFrames * 4);
+                for (uint32_t i = 0; i < outFrames; i++) {
+                    double t = (double)i * (double)fmtRate / (double)deviceRate;
+                    uint32_t i0 = (uint32_t)t;
+                    if (i0 >= inFrames) i0 = inFrames - 1;
+                    uint32_t i1 = (i0 + 1 < inFrames) ? i0 + 1 : i0;
+                    double f = t - (double)i0;
+                    for (int ch = 0; ch < 2; ch++) {
+                        int16_t s0 = (int16_t)(data[i0 * 4 + ch * 2] |
+                                               ((int16_t)data[i0 * 4 + ch * 2 + 1] << 8));
+                        int16_t s1 = (int16_t)(data[i1 * 4 + ch * 2] |
+                                               ((int16_t)data[i1 * 4 + ch * 2 + 1] << 8));
+                        int16_t v = (int16_t)((double)s0 + ((double)s1 - (double)s0) * f);
+                        (*conv)[i * 4 + ch * 2]     = (uint8_t)(v & 0xFF);
+                        (*conv)[i * 4 + ch * 2 + 1] = (uint8_t)((v >> 8) & 0xFF);
+                    }
+                }
+                outData = conv->data();
+                outLen = outFrames * 4;
+                g_keepAlive.push_back(conv);
+                KLAXON_LOG("res: resampled %s %u -> %u Hz", s.path.c_str(),
+                           fmtRate, deviceRate);
+            }
+
+            Mix_Chunk* chunk = Mix_QuickLoad_RAW(outData, outLen);
             if (chunk) {
-                KLAXON_LOG("res: quickload ok %s (%u bytes raw)",
-                           s.path.c_str(), dataLen);
-                // The chunk references the staged buffer directly: keep it
-                // alive until shutdown.
+                KLAXON_LOG("res: quickload ok %s (%u bytes raw, %u Hz)",
+                           s.path.c_str(), outLen, deviceRate);
+                // Keep every buffer the chunk references alive until shutdown.
                 g_keepAlive.push_back(s.buf);
                 s.buf = nullptr;
                 s.valid = false;
                 return chunk;
             }
             KLAXON_LOG("res: Mix_QuickLoad_RAW FAILED: %s", Mix_GetError());
-        } else {
-            KLAXON_LOG("res: wav format mismatch rate=%u ch=%u bits=%u - fallback",
+        } else if (haveFmt) {
+            KLAXON_LOG("res: wav format unsupported rate=%u ch=%u bits=%u - fallback",
                        fmtRate, fmtChannels, fmtBits);
         }
     }
 
-    // Fallback / odd formats: full SDL_mixer decode from memory.
+    // Last-resort fallback for odd formats (mono/8-bit): full SDL_mixer
+    // decode from memory.  Known to wedge on hardware - logged loudly.
+    KLAXON_LOG("res: WARNING falling back to Mix_LoadWAV_RW (may hang): %s",
+               s.path.c_str());
     SDL_RWops* rw = SDL_RWFromMem(s.buf->data(), (int)s.buf->size());
     if (!rw) return nullptr;
     Mix_Chunk* chunk = Mix_LoadWAV_RW(rw, 0);

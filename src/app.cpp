@@ -70,15 +70,16 @@ void App::stageSounds() {
 }
 
 void App::decodeSounds() {
-    KLAXON_LOG("decodeSounds: begin");
-    sndGunshot_   = ResDecodeWav(sndStage_[0]);
-    sndGoodHit_   = ResDecodeWav(sndStage_[1]);
-    sndBadHit_    = ResDecodeWav(sndStage_[2]);
-    sndGameOver_  = ResDecodeWav(sndStage_[3]);
-    sndGetReady_  = ResDecodeWav(sndStage_[4]);
-    sndActionMax_ = ResDecodeWav(sndStage_[5]);
-    sndSteadyAim_ = ResDecodeWav(sndStage_[6]);
-    sndSplash_    = ResDecodeWav(sndStage_[7]);
+    const uint32_t devRate = tape_.audioDeviceRate();
+    KLAXON_LOG("decodeSounds: begin (device %u Hz)", devRate);
+    sndGunshot_   = ResDecodeWav(sndStage_[0], devRate);
+    sndGoodHit_   = ResDecodeWav(sndStage_[1], devRate);
+    sndBadHit_    = ResDecodeWav(sndStage_[2], devRate);
+    sndGameOver_  = ResDecodeWav(sndStage_[3], devRate);
+    sndGetReady_  = ResDecodeWav(sndStage_[4], devRate);
+    sndActionMax_ = ResDecodeWav(sndStage_[5], devRate);
+    sndSteadyAim_ = ResDecodeWav(sndStage_[6], devRate);
+    sndSplash_    = ResDecodeWav(sndStage_[7], devRate);
     KLAXON_LOG("decodeSounds: done");
     KLAXON_LOG("sounds decoded: gun=%d good=%d bad=%d over=%d ready=%d jingle=%d splash=%d",
                sndGunshot_ != nullptr, sndGoodHit_ != nullptr,

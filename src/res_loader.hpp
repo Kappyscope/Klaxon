@@ -27,7 +27,7 @@ Mix_Chunk* ResLoadWav(const std::string& path);
 // opens (SD reads pre-audio are proven safe); the Mix_Chunk decode needs the
 // device open (SDL_mixer converts against the device format at load).
 int  ResStageWav(const std::string& path);   // returns staged id, -1 on fail
-Mix_Chunk* ResDecodeWav(int stagedId);       // after audio device open
+Mix_Chunk* ResDecodeWav(int stagedId, uint32_t deviceRate); // after audio open; linear-resamples to deviceRate
 
 // Frees the font buffers + RWops.  Call once, after every TTF_Font obtained
 // from ResOpenFont has been closed with TTF_CloseFont.
