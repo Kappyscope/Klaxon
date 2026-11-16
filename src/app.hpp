@@ -76,6 +76,7 @@ private:
     void stageSounds();
     void decodeSounds();
     void preloadTextures();
+    void warmTitleText();
     void loadSettings();
     void drawBackgroundStills(const GameConfig& cfg, int cx, int cy, int w, int h);
     void drawVideo(const SDL_Rect& vr);
@@ -131,6 +132,8 @@ private:
     bool aimFlipY_    = false;
     bool videoDar43_  = true;
     bool fullVerify_  = false;
+    bool audioEnabled_ = true;   // config: audio=0 skips the device (bisect)
+    int  titleLevel_   = 9;      // config: title_level=N draws only the first N parts
 
     bool running_     = false;
     bool inForeground_ = true;

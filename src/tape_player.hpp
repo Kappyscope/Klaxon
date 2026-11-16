@@ -55,8 +55,9 @@ public:
     ~TapePlayer();
 
     // Opens the audio device (paused) + decode thread.  Nothing is audible
-    // until startAudio().
-    bool init();
+    // until startAudio().  openAudio=false skips the device entirely (bisect):
+    // the app then runs silent and playSfx() is a no-op.
+    bool init(bool openAudio = true);
     void shutdown();
 
     // Tape phases.  The app issues each LOAD when the previous phase ends

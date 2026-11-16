@@ -23,7 +23,7 @@ TapePlayer::~TapePlayer() {
     shutdown();
 }
 
-bool TapePlayer::init() {
+bool TapePlayer::init(bool openAudio) {
     OSInitMutex(&lock_);
 
     // Audio ring: ~341 ms of stereo S16 pairs at 48 kHz.  Indices are
@@ -35,27 +35,37 @@ bool TapePlayer::init() {
     ringCount_.store(0);
 
     // Audio device: plain SDL, our own callback, our own mixer.  SDL_mixer is
-    // gone on purpose — see the header.  The device opens PAUSED: the audio
-    // thread must not start until every asset and SFX buffer exists.
-    SDL_AudioSpec want;
-    SDL_zero(want);
-    want.freq     = (int)deviceRate_;
-    want.format   = AUDIO_S16SYS;
-    want.channels = 2;
-    want.samples  = 1024;
-    want.callback = &TapePlayer::deviceCb;
-    want.userdata = this;
-    SDL_AudioSpec have;
-    SDL_zero(have);
-    devId_ = SDL_OpenAudioDevice(nullptr, 0, &want, &have, 0);
-    if (devId_ != 0) {
-        audioOpen_ = true;
-        if (have.freq > 0) deviceRate_ = (uint32_t)have.freq;
-        KLAXON_LOG("audio device open: %u Hz S16 stereo (paused until startAudio)",
-                   deviceRate_);
+    // gone on purpose — see the header.  Note SDL_mixer used to initialise the
+    // audio subsystem for us; now we must do it ourselves (SDL_Init in App
+    // only brings up video).
+    if (!openAudio) {
+        KLAXON_LOG("audio: disabled by config (no device, no mixer)");
+        audioOpen_ = false;
+    } else if (SDL_InitSubSystem(SDL_INIT_AUDIO) != 0) {
+        KLAXON_LOG("SDL_InitSubSystem(AUDIO) FAILED: %s", SDL_GetError());
     } else {
-        KLAXON_LOG("SDL_OpenAudioDevice FAILED (%s) - running silent",
-                   SDL_GetError());
+        KLAXON_LOG("audio subsystem init OK");
+
+        SDL_AudioSpec want;
+        SDL_zero(want);
+        want.freq     = (int)deviceRate_;
+        want.format   = AUDIO_S16SYS;
+        want.channels = 2;
+        want.samples  = 1024;
+        want.callback = &TapePlayer::deviceCb;
+        want.userdata = this;
+        SDL_AudioSpec have;
+        SDL_zero(have);
+        devId_ = SDL_OpenAudioDevice(nullptr, 0, &want, &have, 0);
+        if (devId_ != 0) {
+            audioOpen_ = true;
+            if (have.freq > 0) deviceRate_ = (uint32_t)have.freq;
+            KLAXON_LOG("audio device open: %u Hz S16 stereo (paused until startAudio)",
+                       deviceRate_);
+        } else {
+            KLAXON_LOG("SDL_OpenAudioDevice FAILED (%s) - running silent",
+                       SDL_GetError());
+        }
     }
 
     // Decode thread on CPU2 (CPU0/1 belong to the OS and SDL's main loop).

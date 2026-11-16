@@ -40,6 +40,8 @@ void App::loadSettings() {
         if (key == "aim_flip_y")      aimFlipY_   = (val == "1" || val == "true");
         else if (key == "video_dar_4_3")   videoDar43_ = (val == "1" || val == "true");
         else if (key == "full_media_verify") fullVerify_ = (val == "1" || val == "true");
+        else if (key == "audio") audioEnabled_ = !(val == "0" || val == "false");
+        else if (key == "title_level") titleLevel_ = ParseIntDefault(val, 9);
     }
     fclose(f);
 }
@@ -74,13 +76,24 @@ void App::decodeSounds() {
 
     for (int i = 0; i < 8; i++) {
         *ids[i] = -1;
-        if (sndStage_[i] < 0) continue;
+        if (sndStage_[i] < 0) {
+            KLAXON_LOG("sfx[%d]: not staged", i);
+            continue;
+        }
+        KLAXON_LOG("sfx[%d]: decoding staged id %d", i, sndStage_[i]);
         std::unique_ptr<SfxClip> clip(new SfxClip());
-        if (!ResDecodeWav(sndStage_[i], devRate, clip.get())) continue;
+        if (!ResDecodeWav(sndStage_[i], devRate, clip.get())) {
+            KLAXON_LOG("sfx[%d]: decode FAILED", i);
+            continue;
+        }
         const int id = tape_.addSfx(clip->pcm.data(), clip->frames);
-        if (id < 0) continue;
+        if (id < 0) {
+            KLAXON_LOG("sfx[%d]: addSfx FAILED", i);
+            continue;
+        }
         *ids[i] = id;
         sndClips_.push_back(std::move(clip));   // mixer holds a raw pointer
+        KLAXON_LOG("sfx[%d]: ready id=%d frames=%u", i, id, sndClips_.back()->frames);
     }
 
     KLAXON_LOG("sounds ready: gun=%d good=%d bad=%d over=%d ready=%d "
@@ -90,6 +103,39 @@ void App::decodeSounds() {
 
     // Audio starts LAST: from here on nothing may read files or allocate.
     tape_.startAudio();
+}
+
+void App::warmTitleText() {
+    const SDL_Color orange = { 255, 107, 26, 255 };
+    const SDL_Color white  = { 235, 235, 240, 255 };
+    const SDL_Color amber  = { 255, 210, 63, 255 };
+    const SDL_Color gray   = { 170, 175, 185, 255 };
+    const SDL_Color dim    = { 130, 135, 145, 255 };
+    int w = 0, h = 0;
+
+    hud_.textTexture("wordmark", "KLAXON", hud_.fontDisplay(96), orange, &w, &h);
+    hud_.textTexture("titlesub", "A C T I O N   M A X", hud_.fontBody(20), white, &w, &h);
+    hud_.textTexture("lastgametitle", "LAST GAME", hud_.fontBody(20), amber, &w, &h);
+
+    char lines[4][96];
+    snprintf(lines[0], sizeof(lines[0]), "Shots Fired: %d", lastShots_);
+    snprintf(lines[1], sizeof(lines[1]), "Good Hits:   %d", lastGood_);
+    snprintf(lines[2], sizeof(lines[2]), "Bad Hits:    %d", lastBad_);
+    snprintf(lines[3], sizeof(lines[3]), "Game Score:  %d (%d%%)", 0, 0);
+    for (int i = 0; i < 4; i++) {
+        std::string id = std::string("lg") + std::to_string(i);
+        hud_.textTexture(id, lines[i], hud_.fontBody(16), gray, &w, &h);
+    }
+
+    hud_.textTexture("pullstart", "PULL TRIGGER TO START", hud_.fontBody(20),
+                     amber, &w, &h);
+    hud_.textTexture("credit1", "Action Max scripts & assets by ScottD",
+                     hud_.fontBody(16), dim, &w, &h);
+    hud_.textTexture("credit2", "Emulation: Singe / DAPHNE",
+                     hud_.fontBody(16), dim, &w, &h);
+    hud_.textTexture("toast", "Hold - (Wiimote) to quit", hud_.fontBody(20),
+                     white, &w, &h);
+    KLAXON_LOG("hud: title text warmed (no texture creation after audio starts)");
 }
 
 void App::preloadTextures() {
@@ -108,8 +154,8 @@ bool App::init() {
     KLAXON_LOG("=== app init begin ===");
 
     loadSettings();
-    KLAXON_LOG("settings: aim_flip_y=%d video_dar_4_3=%d full_verify=%d",
-               (int)aimFlipY_, (int)videoDar43_, (int)fullVerify_);
+    KLAXON_LOG("settings: aim_flip_y=%d video_dar_4_3=%d full_verify=%d audio=%d",
+               (int)aimFlipY_, (int)videoDar43_, (int)fullVerify_, (int)audioEnabled_);
 
     if (SDL_Init(SDL_INIT_VIDEO) != 0) {
         KLAXON_LOG("SDL_Init(VIDEO) FAILED: %s", SDL_GetError());
@@ -157,8 +203,13 @@ bool App::init() {
     stageSounds();
     preloadTextures();
 
+    // Every texture the title screen needs is built BEFORE the audio device
+    // opens: creating textures while the mixer callback runs has crashed both
+    // Cemu (host AV) and the console.  Same rule as the file reads.
+    warmTitleText();
+
     // Audio device + decode thread LAST, after every file read is done.
-    tape_.init();
+    tape_.init(audioEnabled_);
 
     // Decode the staged WAVs into PCM now that the device exists (pure memory
     // work), then unpause audio.
@@ -412,7 +463,7 @@ void App::run() {
         if (!running_) break;
         render();
         frameCount_++;
-        if (frameCount_ % 300 == 0) {
+        if (frameCount_ % 60 == 0) {
             KLAXON_LOG("alive: frame %d state=%d underruns=%u dropped=%u "
                        "audioPeriods=%u voices=%d",
                        frameCount_, (int)state_,
@@ -634,12 +685,14 @@ void App::renderTitle() {
     SDL_RenderClear(renderer_);
 
     // Background still of the currently highlighted game.
-    if (selectedGame_ >= 0 && selectedGame_ < (int)registry_.games().size()) {
+    if (titleLevel_ >= 1 && selectedGame_ >= 0 &&
+        selectedGame_ < (int)registry_.games().size()) {
         drawBackgroundStills(registry_.games()[selectedGame_],
                              SCREEN_W / 2, SCREEN_H / 2, SCREEN_W, SCREEN_H);
     }
 
     // Wordmark.
+    if (titleLevel_ >= 2) {
     int w = 0, h = 0;
     SDL_Color orange = { 255, 107, 26, 255 };
     SDL_Texture* mark = hud_.textTexture("wordmark", "KLAXON",
@@ -656,9 +709,10 @@ void App::renderTitle() {
         SDL_Rect dst = { (SCREEN_W - sw) / 2, 110 + h + 8, sw, sh };
         SDL_RenderCopy(renderer_, sub, nullptr, &dst);
     }
+    }  // titleLevel_ >= 2 (wordmark)
 
     // LAST GAME panel (top-left).
-    {
+    if (titleLevel_ >= 3) {
         SDL_Rect panel = { 36, 300, 320, 170 };
         SDL_SetRenderDrawColor(renderer_, 10, 12, 20, 216);
         SDL_RenderFillRect(renderer_, &panel);
@@ -696,7 +750,7 @@ void App::renderTitle() {
     }
 
     // Pull trigger prompt (pulsing).
-    {
+    if (titleLevel_ >= 4) {
         int pw = 0, ph = 0;
         SDL_Color amber = { 255, 210, 63, 255 };
         SDL_Texture* t = hud_.textTexture("pullstart", "PULL TRIGGER TO START",
@@ -704,21 +758,27 @@ void App::renderTitle() {
         hud_.drawPulsingCentred(t, pw, ph, SCREEN_H - 130, pulse_);
     }
 
-    // Credits.
-    {
+    // Credits (two short lines: one wide texture was upsetting the renderer).
+    if (titleLevel_ >= 5) {
         int cw = 0, ch = 0;
         SDL_Color gray = { 130, 135, 145, 255 };
-        SDL_Texture* t = hud_.textTexture(
-            "credits",
-            "Action Max scripts & assets by ScottD | Emulation: Singe/DAPHNE",
-            hud_.fontBody(16), gray, &cw, &ch);
-        if (t) {
+        const char* l1 = "Action Max scripts & assets by ScottD";
+        const char* l2 = "Emulation: Singe / DAPHNE";
+        SDL_Texture* t1 = hud_.textTexture("credit1", l1, hud_.fontBody(16),
+                                           gray, &cw, &ch);
+        if (t1) {
+            SDL_Rect dst = { (SCREEN_W - cw) / 2, SCREEN_H - 58, cw, ch };
+            SDL_RenderCopy(renderer_, t1, nullptr, &dst);
+        }
+        SDL_Texture* t2 = hud_.textTexture("credit2", l2, hud_.fontBody(16),
+                                           gray, &cw, &ch);
+        if (t2) {
             SDL_Rect dst = { (SCREEN_W - cw) / 2, SCREEN_H - 40, cw, ch };
-            SDL_RenderCopy(renderer_, t, nullptr, &dst);
+            SDL_RenderCopy(renderer_, t2, nullptr, &dst);
         }
     }
 
-    hud_.drawToast("Hold - (Wiimote) to quit");
+    if (titleLevel_ >= 6) hud_.drawToast("Hold - (Wiimote) to quit");
 }
 
 void App::renderGameSelect() {

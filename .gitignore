@@ -17,3 +17,6 @@ branding/splash-jingle.wav
 
 # Local workspace state
 .zwork/
+
+# Local Cemu capture output - screenshots of the desktop must never be committed
+tools/out/

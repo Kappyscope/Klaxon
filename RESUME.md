@@ -31,10 +31,14 @@ Remove-Item 'F:\wiiu\apps\Klaxon-ActionMax\klaxon.log' -ErrorAction SilentlyCont
 `E:\klaxon-build` is the existing build tree (do not reconfigure casually).
 
 ## Current HEAD
-`c380aa3` — "In-memory linear resample for 44.1k SFX - no SDL_mixer decode on
-hardware at all". Built, staged, copied to SD (F:) and Cemu at 19:54, pushed.
-**Never booted** — no log exists from this build on either target
-(the Cemu log on disk is 19:09, from the previous build).
+`2bbd30e` — "Own audio mixer: remove SDL_mixer entirely (device lock deadlocks
+on hardware)". Built, deployed to F: + Cemu 20:09, pushed. **Awaiting first boot.**
+
+Previous `c380aa3` booted and logged up to `res: resampled ... 44100 -> 48000 Hz`
+then stopped — i.e. it died on the very next call, `Mix_QuickLoad_RAW`, the first
+SDL_mixer call made after the audio callback thread was live. Every `Mix_*` entry
+point takes the audio-device lock; taking it once the callback is running
+deadlocks on this stack. Same root cause as the total silence.
 
 ## Hardware debug chain (root causes, in the order found)
 1. freetype hangs streaming from `/vol/content` → all bundled assets read into
@@ -47,22 +51,30 @@ hardware at all". Built, staged, copied to SD (F:) and Cemu at 19:54, pushed.
    hardware → replaced with a lock-free SPSC ring (atomics only).
 5. SDL_mixer WAV decode takes the mixer lock → parse RIFF + `Mix_QuickLoad_RAW`.
 6. QuickLoad only accepted 48 kHz but Singe SFX are 44.1 kHz → the first effect
-   fell back into the mixer-lock decoder. Current fix: in-memory linear
-   resample 44.1 → device rate at boot.
+   fell back into the mixer-lock decoder.
+7. **Every SDL_mixer call deadlocks once the audio thread is live** (device
+   lock). Fix in `2bbd30e`: SDL_mixer removed entirely — plain SDL audio device,
+   own callback, tape ring + 8 SFX voices mixed there, lock-free trigger queue,
+   SFX decoded to raw S16 PCM. Device opens paused, unpaused only after all
+   buffers exist; shutdown pauses instead of closing.
 
 ## Next action
-Boot `c380aa3` on hardware, then read `F:\wiiu\apps\Klaxon-ActionMax\klaxon.log`.
+Boot `2bbd30e`, then read `F:\wiiu\apps\Klaxon-ActionMax\klaxon.log`.
 Success signature, in order:
 ```
 decodeSounds: begin (device 48000 Hz)
-res: quickload ok ... 48000 Hz      (x8)
-sounds decoded: gun=.. good=.. bad=.. over=.. ready=.. jingle=.. splash=..   (all non-zero)
+res: pcm ready ... (N frames, 44100 -> 48000 Hz)      (x8)
+sounds ready: gun=0 good=1 bad=2 over=3 ready=4 jingle=5 steady=6 splash=7
+audio: device running (own mixer, no SDL_mixer)
 splash jingle playing
 run: begin (state=0)
 -> TITLE
-alive: frame N state=X underruns=.. dropped=..    (every 5 s)
+alive: frame N state=X underruns=.. dropped=.. audioPeriods=P voices=V
 ```
-If it dies, the log ends at a named line — that name is the next bug.
+`audioPeriods` must keep climbing (≈47/s at 1024 samples / 48 kHz). If it stays
+at 1, the wut SDL audio thread itself is dead → next step is native AX audio.
+If it climbs but there is no sound, the mixer is fine and the problem is output
+routing/volume.
 
 ## Other artifacts
 - `research/singe-restudy.md` — config table + media tree analysis (Singe-IA).
