@@ -159,7 +159,7 @@ Mix_Chunk* ResDecodeWav(int stagedId) {
     // which exactly match the opened device format.  Parse the RIFF manually
     // and wrap the data chunk with Mix_QuickLoad_RAW - this never touches
     // SDL_mixer's audio lock (which can wedge if the audio thread died).
-    const std::vector<uint8_t>& b = *s.buf;
+    std::vector<uint8_t>& b = *s.buf;
     if (b.size() > 44 && b[0] == 'R' && b[1] == 'I' && b[2] == 'F' && b[3] == 'F'
         && b[8] == 'W' && b[9] == 'A' && b[10] == 'V' && b[11] == 'E') {
         size_t off = 12;
