@@ -27,6 +27,7 @@ set(SOURCES
     src/hit_detector.cpp
     src/sha256.cpp
     src/common.cpp
+    src/res_loader.cpp
 )
 
 add_executable(Klaxon-ActionMax ${SOURCES})

@@ -9,6 +9,7 @@
 #include <SDL_ttf.h>
 
 #include "common.hpp"
+#include "res_loader.hpp"
 
 // ---------------------------------------------------------------------------
 // Screen constants
@@ -55,10 +56,8 @@ bool App::loadSounds() {
             KLAXON_LOG("sound missing: %s", rel);
             return nullptr;
         }
-        SDL_RWops* rw = SDL_RWFromFile(path.c_str(), "rb");
-        if (!rw) return nullptr;
-        Mix_Chunk* c = Mix_LoadWAV_RW(rw, 1);
-        if (!c) KLAXON_LOG("Mix_LoadWAV(%s) failed: %s", rel, Mix_GetError());
+        Mix_Chunk* c = ResLoadWav(path);
+        if (!c) KLAXON_LOG("Mix_LoadWAV(%s) failed", rel);
         return c;
     };
     sndGunshot_   = load("assets/sounds/sound_gunshot.wav");
@@ -170,6 +169,7 @@ void App::shutdown() {
 
     if (texVideo_) { SDL_DestroyTexture(texVideo_); texVideo_ = nullptr; }
     hud_.shutdown();
+    ResShutdown();   // free font buffers AFTER TTF_CloseFont ran in hud
     input_.shutdown();
 
     if (renderer_) { SDL_DestroyRenderer(renderer_); renderer_ = nullptr; }
@@ -534,7 +534,7 @@ void App::drawBackgroundStills(const GameConfig& cfg, int cx, int cy, int w, int
     std::string rel = "assets/backgrounds/" + cfg.id + ".png";
     std::string path = ResolveAssetPath(rel);
     SDL_Texture* bg = nullptr;
-    if (!path.empty()) bg = IMG_LoadTexture(renderer_, path.c_str());
+    if (!path.empty()) bg = ResLoadTexture(renderer_, path);
     if (bg) {
         SDL_Rect dst = { cx - w / 2, cy - h / 2, w, h };
         SDL_SetTextureAlphaMod(bg, 120);
@@ -544,7 +544,7 @@ void App::drawBackgroundStills(const GameConfig& cfg, int cx, int cy, int w, int
         std::string artPath = ResolveAssetPath(
             "assets/sprites/sprite_" + cfg.id + ".png");
         if (!artPath.empty()) {
-            SDL_Texture* art = IMG_LoadTexture(renderer_, artPath.c_str());
+            SDL_Texture* art = ResLoadTexture(renderer_, artPath);
             if (art) {
                 SDL_Rect dst = { cx - w / 4, cy - h / 4, w / 2, h / 2 };
                 SDL_SetTextureAlphaMod(art, 90);
@@ -729,7 +729,7 @@ void App::renderGameSelect() {
         std::string artPath = ResolveAssetPath(
             "assets/sprites/sprite_" + cfg.id + ".png");
         if (!artPath.empty()) {
-            SDL_Texture* art = IMG_LoadTexture(renderer_, artPath.c_str());
+            SDL_Texture* art = ResLoadTexture(renderer_, artPath);
             if (art) {
                 SDL_Rect artRect = { x + 5, yy + 5, cardW - 10, cardH - 50 };
                 SDL_RenderCopy(renderer_, art, nullptr, &artRect);

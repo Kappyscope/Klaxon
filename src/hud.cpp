@@ -1,6 +1,7 @@
 #include "hud.hpp"
 
 #include "common.hpp"
+#include "res_loader.hpp"
 
 #include <SDL_image.h>
 #include <cstdio>
@@ -25,15 +26,8 @@ static const SDL_Color gray     = { 150, 155, 165, 255 };
 
 SDL_Texture* Hud::loadTex(const char* rel) {
     std::string path = ResolveAssetPath(rel);
-    if (path.empty()) {
-        KLAXON_LOG("hud: texture missing: %s", rel);
-        return nullptr;
-    }
-    SDL_Texture* tex = IMG_LoadTexture(renderer_, path.c_str());
-    if (!tex) {
-        KLAXON_LOG("hud: IMG_LoadTexture(%s) failed: %s", rel, IMG_GetError());
-    }
-    return tex;
+    if (path.empty()) return nullptr;
+    return ResLoadTexture(renderer_, path);
 }
 
 bool Hud::init(SDL_Renderer* renderer) {
@@ -45,10 +39,7 @@ bool Hud::init(SDL_Renderer* renderer) {
         KLAXON_LOG("hud: font %s (path=%s)", rel,
                    path.empty() ? "MISSING" : path.c_str());
         if (path.empty()) return nullptr;
-        TTF_Font* f = TTF_OpenFont(path.c_str(), px);
-        KLAXON_LOG("hud: TTF_OpenFont(%s, %d) -> %p %s", rel, px, (void*)f,
-                   f ? "ok" : TTF_GetError());
-        return f;
+        return ResOpenFont(path, px);
     };
 
     fDisplay48_ = openFont("assets/fonts/ui_display.ttf", 48);
@@ -68,13 +59,11 @@ bool Hud::init(SDL_Renderer* renderer) {
 
     auto loadTex = [&](const char* rel) -> SDL_Texture* {
         std::string path = ResolveAssetPath(rel);
-        KLAXON_LOG("hud: tex %s (path=%s)", rel,
-                   path.empty() ? "MISSING" : path.c_str());
-        if (path.empty()) return nullptr;
-        SDL_Texture* tex = IMG_LoadTexture(renderer_, path.c_str());
-        KLAXON_LOG("hud: IMG_LoadTexture(%s) -> %p %s", rel, (void*)tex,
-                   tex ? "ok" : IMG_GetError());
-        return tex;
+        if (path.empty()) {
+            KLAXON_LOG("hud: tex %s MISSING", rel);
+            return nullptr;
+        }
+        return ResLoadTexture(renderer_, path);
     };
 
     texCrosshair_ = loadTex("assets/sprites/sprite_crosshair.png");
