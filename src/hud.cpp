@@ -38,14 +38,16 @@ SDL_Texture* Hud::loadTex(const char* rel) {
 
 bool Hud::init(SDL_Renderer* renderer) {
     renderer_ = renderer;
+    KLAXON_LOG("hud init: begin");
 
     auto openFont = [&](const char* rel, int px) -> TTF_Font* {
         std::string path = ResolveAssetPath(rel);
+        KLAXON_LOG("hud: font %s (path=%s)", rel,
+                   path.empty() ? "MISSING" : path.c_str());
         if (path.empty()) return nullptr;
         TTF_Font* f = TTF_OpenFont(path.c_str(), px);
-        if (!f) {
-            KLAXON_LOG("hud: TTF_OpenFont(%s, %d) failed: %s", rel, px, TTF_GetError());
-        }
+        KLAXON_LOG("hud: TTF_OpenFont(%s, %d) -> %p %s", rel, px, (void*)f,
+                   f ? "ok" : TTF_GetError());
         return f;
     };
 
@@ -63,6 +65,17 @@ bool Hud::init(SDL_Renderer* renderer) {
     if (!fBody16_)    fBody16_    = openFont("assets/fonts/font_chemrea.ttf", 16);
     if (!fBody20_)    fBody20_    = openFont("assets/fonts/font_chemrea.ttf", 20);
     if (!fDseg40_)    fDseg40_    = openFont("assets/fonts/font_led_real.ttf", 36);
+
+    auto loadTex = [&](const char* rel) -> SDL_Texture* {
+        std::string path = ResolveAssetPath(rel);
+        KLAXON_LOG("hud: tex %s (path=%s)", rel,
+                   path.empty() ? "MISSING" : path.c_str());
+        if (path.empty()) return nullptr;
+        SDL_Texture* tex = IMG_LoadTexture(renderer_, path.c_str());
+        KLAXON_LOG("hud: IMG_LoadTexture(%s) -> %p %s", rel, (void*)tex,
+                   tex ? "ok" : IMG_GetError());
+        return tex;
+    };
 
     texCrosshair_ = loadTex("assets/sprites/sprite_crosshair.png");
     texLightOn_   = loadTex("assets/sprites/sprite_lighton.png");

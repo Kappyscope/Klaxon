@@ -85,7 +85,9 @@ bool GameRegistry::parseGameCfg(const std::string& path, GameConfig& cfg) {
 }
 
 void GameRegistry::resolveMedia(GameConfig& cfg, bool fullVerify) {
-    std::string rel = "media/" + cfg.id + "/" + cfg.media;
+    // The SD layout is <app dir>/data/media/... (build_and_deploy.ps1 stages
+    // it there); /vol/content fallback covers fully-packed builds.
+    std::string rel = "data/media/" + cfg.id + "/" + cfg.media;
     cfg.mediaPath = ResolveMediaPath(rel);
     cfg.ready = false;
     cfg.statusNote.clear();
@@ -221,8 +223,8 @@ int GameRegistry::load(bool fullVerify) {
     }
 
     // Common segments.
-    introMediaPath = ResolveMediaPath("media/common/intro.mpg");
-    menuMediaPath  = ResolveMediaPath("media/common/menu.mpg");
+    introMediaPath = ResolveMediaPath("data/media/common/intro.mpg");
+    menuMediaPath  = ResolveMediaPath("data/media/common/menu.mpg");
     commonReady = !introMediaPath.empty() && !menuMediaPath.empty();
     commonStatusNote = commonReady ? "OK" : "intro/menu media missing on SD card";
     KLAXON_LOG("common media: intro=%s menu=%s (%s)",
