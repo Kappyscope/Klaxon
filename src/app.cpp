@@ -71,33 +71,50 @@ void App::stageSounds() {
 }
 
 void App::decodeSounds() {
-    const uint32_t devRate = tape_.audioDeviceRate();
-    KLAXON_LOG("decodeSounds: begin (device %u Hz)", devRate);
+    // Pure memory work: done BEFORE the audio device exists, because allocating
+    // while a device is open has crashed the console repeatedly.  The rate is
+    // what we ask the device for; registerSounds() verifies it actually got it.
+    const uint32_t devRate = 48000;
+    KLAXON_LOG("decodeSounds: begin (target %u Hz, pre-audio)", devRate);
 
     sndClips_.clear();
-    int* ids[8] = { &sndGunshot_, &sndGoodHit_, &sndBadHit_, &sndGameOver_,
-                    &sndGetReady_, &sndActionMax_, &sndSteadyAim_, &sndSplash_ };
+    sndClips_.reserve(8);
 
     for (int i = 0; i < 8; i++) {
-        *ids[i] = -1;
         if (sndStage_[i] < 0) {
             KLAXON_LOG("sfx[%d]: not staged", i);
             continue;
         }
-        KLAXON_LOG("sfx[%d]: decoding staged id %d", i, sndStage_[i]);
         std::unique_ptr<SfxClip> clip(new SfxClip());
         if (!ResDecodeWav(sndStage_[i], devRate, clip.get())) {
             KLAXON_LOG("sfx[%d]: decode FAILED", i);
             continue;
         }
+        KLAXON_LOG("sfx[%d]: decoded %u frames", i, clip->frames);
+        sndClips_.push_back(std::move(clip));
+        clipSlots_[sndClips_.size() - 1] = i;   // remember which sound this is
+    }
+    KLAXON_LOG("decodeSounds: done (%d clips)", (int)sndClips_.size());
+}
+
+// Called AFTER tape_.init(): registers the already-decoded PCM with the mixer
+// (no allocation, just pointers) and starts the device.
+void App::registerSounds() {
+    int* ids[8] = { &sndGunshot_, &sndGoodHit_, &sndBadHit_, &sndGameOver_,
+                    &sndGetReady_, &sndActionMax_, &sndSteadyAim_, &sndSplash_ };
+    for (int i = 0; i < 8; i++) *ids[i] = -1;
+
+    for (size_t i = 0; i < sndClips_.size(); i++) {
+        SfxClip* clip = sndClips_[i].get();
         const int id = tape_.addSfx(clip->pcm.data(), clip->frames);
-        if (id < 0) {
-            KLAXON_LOG("sfx[%d]: addSfx FAILED", i);
-            continue;
-        }
-        *ids[i] = id;
-        sndClips_.push_back(std::move(clip));   // mixer holds a raw pointer
-        KLAXON_LOG("sfx[%d]: ready id=%d frames=%u", i, id, sndClips_.back()->frames);
+        const int slot = clipSlots_[i];
+        if (id >= 0 && slot >= 0 && slot < 8) *ids[slot] = id;
+    }
+
+    const uint32_t actual = tape_.audioDeviceRate();
+    if (actual != 48000) {
+        KLAXON_LOG("WARNING: device opened at %u Hz, clips were built for 48000",
+                   actual);
     }
 
     KLAXON_LOG("sounds ready: gun=%d good=%d bad=%d over=%d ready=%d "
@@ -225,12 +242,16 @@ bool App::init() {
     // Cemu (host AV) and the console.  Same rule as the file reads.
     warmTitleText();
 
-    // Audio device + decode thread LAST, after every file read is done.
+    // SFX decoding is pure memory work and needs no device: do it BEFORE the
+    // audio stack exists (allocating after the device opens has crashed the
+    // console).  Decoded to the rate we ask the device for (48 kHz).
+    decodeSounds();
+
+    // Audio device + decode thread LAST, after every file read and allocation.
     tape_.init(audioEnabled_);
 
-    // Decode the staged WAVs into PCM now that the device exists (pure memory
-    // work), then unpause audio.
-    decodeSounds();
+    // Register the decoded PCM (pointers only) and unpause the device.
+    registerSounds();
 
     state_ = (registry_.readyCount() > 0 && registry_.commonReady)
                  ? AppState::SPLASH
