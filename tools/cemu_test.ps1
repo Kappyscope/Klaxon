@@ -17,7 +17,7 @@ $ErrorActionPreference = 'Stop'
 
 $Root     = Split-Path -Parent $PSScriptRoot
 $Cemu     = 'E:\cemu\Cemu_2.6\Cemu.exe'
-$CemuSd   = 'C:\Users\mrsco\AppData\Roaming\Cemu\sdcard'
+$CemuSd   = (Join-Path $env:APPDATA 'Cemu\sdcard')
 $AppDir   = Join-Path $CemuSd 'wiiu\apps\Klaxon-ActionMax'
 $Wuhb     = Join-Path $Root 'dist\Klaxon-ActionMax\Klaxon-ActionMax.wuhb'
 $Log      = Join-Path $AppDir 'klaxon.log'

@@ -20,3 +20,12 @@ branding/splash-jingle.wav
 
 # Local Cemu capture output - screenshots of the desktop must never be committed
 tools/out/
+
+# Generated from the user's own actionmax.zip by tools/extract_assets.ps1 (never redistributed)
+romfs/singe/
+
+# Cloned third-party sources used for research only
+research/_src/
+
+# Local development notes (contains machine-specific paths)
+RESUME.md

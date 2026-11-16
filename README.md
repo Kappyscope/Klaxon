@@ -95,3 +95,4 @@ Yeah, I guess. But not for Windows, please see the lovely folks at [Kangaroo Pun
 - [pl_mpeg](https://github.com/phoboslab/pl_mpeg) by Dominic Szablewski (MIT) does the actual MPEG-1 lifting.
 - UI fonts: Orbitron, Chakra Petch, DSEG7 — all SIL OFL, licenses included in the app assets.
 - License: [WTFPL](LICENSE.md), obviously. And the [AI usage disclosure](AI_USAGE_DISCLOSURE.md) is a thing that exists, for transparency.
+- Third-party licences (pl_mpeg MIT, SDL zlib, the font OFLs) are collected in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
